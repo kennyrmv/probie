@@ -1,0 +1,28 @@
+# EdgeFút backend dependencies
+
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.10
+
+# HTTP client
+httpx==0.27.2
+
+# Football probability model
+penaltyblog==1.5.0
+pandas==2.2.3
+numpy==1.26.4
+scipy==1.14.1
+
+# Team name matching
+rapidfuzz==3.10.1
+
+# Scheduler
+apscheduler==3.10.4
+
+# Type hints
+python-dotenv==1.0.1
