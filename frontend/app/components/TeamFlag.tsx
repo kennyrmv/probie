@@ -85,7 +85,7 @@ export default function TeamFlag({ team, size = 28 }: TeamFlagProps) {
   if (code && !failed) {
     return (
       <img
-        src={`https://flagcdn.com/h${Math.round(size * 1.5)}/${code}.png`}
+        src={`https://flagcdn.com/w80/${code}.png`}
         alt={team}
         height={size}
         onError={() => setFailed(true)}
