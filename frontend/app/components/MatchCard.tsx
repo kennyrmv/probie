@@ -484,11 +484,11 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
         </div>
       )}
 
-      {/* Confirmed lineup panel */}
-      {hasConfirmedLineup && <LineupPanel match={match} lineup={lineup!} />}
+      {/* Lineup panel — shows for both probable and confirmed lineups */}
+      {hasStarters && <LineupPanel match={match} lineup={lineup!} />}
 
-      {/* Squad fallback */}
-      <SquadPanel match={match} hasConfirmedLineup={hasConfirmedLineup} />
+      {/* Squad fallback — only when no starters at all */}
+      <SquadPanel match={match} hasConfirmedLineup={hasStarters} />
 
       {/* AI analysis panel */}
       <AnalysisPanel
