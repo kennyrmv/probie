@@ -66,21 +66,22 @@ def _gather_search_results(
     year = kickoff_dt.strftime("%Y")
 
     queries = [
-        # Match preview — most likely to have today's tactical context
+        # Match preview
         f"{home_team} vs {away_team} preview {date_str}",
         f"{home_team} vs {away_team} {competition} {month_year} analisis previo",
-        # Injuries/absences this window
-        f"{home_team} bajas lesiones convocatoria {month_year}",
-        f"{away_team} bajas lesiones convocatoria {month_year}",
-        # Recent form — last tournament or qualification campaign
-        f"{home_team} seleccion resultados forma reciente {year}",
-        f"{away_team} seleccion resultados forma reciente {year}",
+        # *** CRITICAL: Official squad list for this exact break ***
+        # (prevents listing players not called up, e.g. Griezmann if not in squad)
+        f"{home_team} seleccion convocados lista oficial {month_year}",
+        f"{away_team} seleccion convocados lista oficial {month_year}",
+        # *** CRITICAL: Results from THIS break (teams may have already played) ***
+        f"{home_team} seleccion resultado partido {month_year}",
+        f"{away_team} seleccion resultado partido {month_year}",
+        # Injuries/absences
+        f"{home_team} bajas lesiones {month_year}",
+        f"{away_team} bajas lesiones {month_year}",
         # Coach and tactical system
         f"{home_team} entrenador tactica sistema {year}",
         f"{away_team} entrenador tactica sistema {year}",
-        # Recent tournament context (AFCON, Copa America, World Cup qualifying, etc.)
-        f"{home_team} torneo reciente {year} rendimiento",
-        f"{away_team} torneo reciente {year} rendimiento",
         # H2H
         f"{home_team} vs {away_team} head to head historial",
     ]
@@ -121,7 +122,18 @@ Reglas de análisis:
 - Para los top 3 jugadores: los más impactantes en ESTE partido específico, no los más famosos en general.
 - El ajuste de probabilidades debe ser conservador (máximo ±10pp) y justificado con evidencia concreta.
 - La señal de apuesta combina edge matemático + calidad del XI + contexto táctico/motivacional.
-- Responde ÚNICAMENTE con el JSON solicitado, sin texto adicional."""
+- Responde ÚNICAMENTE con el JSON solicitado, sin texto adicional.
+
+REGLA CRÍTICA — CONVOCATORIA Y FORMA RECIENTE:
+- Los jugadores en "top_players_home/away" DEBEN estar confirmados en la convocatoria de ESTE parón.
+  Si los resultados de búsqueda de "convocados {mes}" NO confirman que un jugador estrella fue
+  convocado, NO lo pongas como jugador clave. Usa solo jugadores que los resultados web confirman.
+  EJEMPLO: si buscas "France convocados marzo 2026" y Griezmann no aparece → NO lo incluyas.
+- Para "form_home" y "form_away": incluye resultados de ESTE parón de selecciones si ya jugaron.
+  Los equipos nacionales pueden haber jugado ya una primera jornada en este parón — búscalo
+  explícitamente. EJEMPLO: si Colombia perdió 0-1 contra Croacia en este parón, ese resultado
+  DEBE reflejarse en la forma reciente, no ignorarse.
+- Nunca uses jugadores históricos famosos si no hay evidencia web de que están convocados ahora."""
 
 
 def _synthesize(
@@ -197,17 +209,17 @@ Analiza este partido como un apostador profesional. Devuelve ÚNICAMENTE este JS
   "home_missing": [{{"name": "nombre", "reason": "lesión/suspensión/otro"}}],
   "away_missing": [{{"name": "nombre", "reason": "lesión/suspensión/otro"}}],
   "top_players_home": [
-    {{"name": "nombre completo", "position": "DEL|MED|DEF|POR", "impact": "por qué es clave en ESTE partido", "form": "estado de forma actual en 1 frase"}},
+    {{"name": "nombre completo", "position": "DEL|MED|DEF|POR", "impact": "por qué es clave en ESTE partido", "form": "estado de forma actual en 1 frase — SOLO si fue confirmado convocado en este parón"}},
     {{"name": "...", "position": "...", "impact": "...", "form": "..."}},
     {{"name": "...", "position": "...", "impact": "...", "form": "..."}}
   ],
   "top_players_away": [
-    {{"name": "nombre completo", "position": "DEL|MED|DEF|POR", "impact": "por qué es clave en ESTE partido", "form": "estado de forma actual en 1 frase"}},
+    {{"name": "nombre completo", "position": "DEL|MED|DEF|POR", "impact": "por qué es clave en ESTE partido", "form": "estado de forma actual en 1 frase — SOLO si fue confirmado convocado en este parón"}},
     {{"name": "...", "position": "...", "impact": "...", "form": "..."}},
     {{"name": "...", "position": "...", "impact": "...", "form": "..."}}
   ],
-  "form_home": "ej: V-V-E-V-D · 2.2 pts/j",
-  "form_away": "ej: D-E-V-D-V · 1.4 pts/j",
+  "form_home": "ej: V-V-E-V-D · 2.2 pts/j — incluye resultados de ESTE parón si ya jugaron",
+  "form_away": "ej: D-E-V-D-V · 1.4 pts/j — incluye resultados de ESTE parón si ya jugaron",
   "context": "1-2 frases sobre qué se juegan ambos equipos y contexto clave",
   "key_factors": [
     "factor 1 concreto y relevante para la apuesta",
