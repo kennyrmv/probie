@@ -176,7 +176,11 @@ def fetch_match_lineup(match_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Match not found")
 
     try:
-        from resolver.api_football import fetch_lineup_for_match
+        import os
+        if os.environ.get("API_FOOTBALL_KEY"):
+            from resolver.api_football import fetch_lineup_for_match
+        else:
+            from resolver.claude_lineup import fetch_lineup_for_match  # type: ignore[assignment]
         lineup = fetch_lineup_for_match(
             home_team=match.home_team,
             away_team=match.away_team,
