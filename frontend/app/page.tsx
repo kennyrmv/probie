@@ -77,61 +77,107 @@ interface BetCard {
   type: "value" | "favorite";
   side: "home" | "draw" | "away";
   label: string;
-  adjustedProb: number | null;
+  ourProb: number | null;
+  marketProb: number | null;
   edgePp: number | null;
   confidence: "alta" | "media" | "baja";
   reasoning: string;
+  hasAnalysis: boolean;
 }
 
 function pickBestBets(matches: Match[]): { value: BetCard | null; favorite: BetCard | null } {
+  const scheduled = matches.filter(m => getMatchState(m.kickoff, m.match_status) === "scheduled");
+
+  // ── Best VALUE: highest edge from model, enriched with analysis if available ──
   let bestValue: BetCard | null = null;
   let bestValueEdge = -Infinity;
+
+  for (const m of scheduled) {
+    if (!m.best_delta_pp || m.best_delta_pp < 5) continue; // minimum 5pp edge
+
+    const signal = m.analysis_data?.bet_signal;
+
+    if (signal && signal.type === "value" && signal.side) {
+      // Analysis agrees: use analyzed side + reasoning
+      const outcome = m.outcomes.find(o => o.outcome === signal.side);
+      if (!outcome) continue;
+      const edgePp = outcome.ai_delta_pp ?? outcome.delta_pp;
+      if (edgePp !== null && edgePp > bestValueEdge) {
+        bestValueEdge = edgePp;
+        bestValue = {
+          match: m, type: "value",
+          side: signal.side as "home" | "draw" | "away",
+          label: outcome.label,
+          ourProb: outcome.ai_model_prob ?? outcome.model_prob,
+          marketProb: outcome.polymarket_prob,
+          edgePp,
+          confidence: signal.confidence,
+          reasoning: signal.reasoning,
+          hasAnalysis: true,
+        };
+      }
+    } else if (!signal || signal.type === "none") {
+      // No analysis yet: fall back to model — pick the outcome with highest delta
+      const bestOutcome = m.outcomes.reduce<Outcome | null>((best, o) => {
+        const d = o.ai_delta_pp ?? o.delta_pp;
+        const bd = best ? (best.ai_delta_pp ?? best.delta_pp) : null;
+        if (d === null) return best;
+        if (bd === null || d > bd) return o;
+        return best;
+      }, null);
+      if (!bestOutcome) continue;
+      const edgePp = bestOutcome.ai_delta_pp ?? bestOutcome.delta_pp;
+      if (edgePp !== null && edgePp > bestValueEdge) {
+        bestValueEdge = edgePp;
+        bestValue = {
+          match: m, type: "value",
+          side: bestOutcome.outcome as "home" | "draw" | "away",
+          label: bestOutcome.label,
+          ourProb: bestOutcome.ai_model_prob ?? bestOutcome.model_prob,
+          marketProb: bestOutcome.polymarket_prob,
+          edgePp,
+          confidence: "media",
+          reasoning: "",
+          hasAnalysis: false,
+        };
+      }
+    }
+  }
+
+  // ── Best FAVORITE: requires analysis to know which side to back ──
   let bestFav: BetCard | null = null;
   let bestFavProb = -Infinity;
 
-  for (const m of matches) {
-    // Skip live/finished matches — no point recommending bets on started games
-    if (getMatchState(m.kickoff, m.match_status) !== "scheduled") continue;
+  for (const m of scheduled) {
     const signal = m.analysis_data?.bet_signal;
-    if (!signal || signal.type === "none" || !signal.side) continue;
-    const side = signal.side as "home" | "draw" | "away";
-    const outcome = m.outcomes.find(o => o.outcome === side);
+    if (!signal || signal.type !== "favorite" || !signal.side) continue;
+    const outcome = m.outcomes.find(o => o.outcome === signal.side);
     if (!outcome) continue;
-    const adjustedProb = outcome.ai_model_prob ?? outcome.model_prob;
-    const edgePp = outcome.ai_delta_pp ?? outcome.delta_pp;
-    const card: BetCard = {
-      match: m,
-      type: signal.type,
-      side,
-      label: outcome.label,
-      adjustedProb,
-      edgePp,
-      confidence: signal.confidence,
-      reasoning: signal.reasoning,
-    };
-    if (signal.type === "value" && edgePp !== null && edgePp > bestValueEdge) {
-      bestValueEdge = edgePp;
-      bestValue = card;
-    }
-    if (signal.type === "favorite" && adjustedProb > bestFavProb) {
-      bestFavProb = adjustedProb;
-      bestFav = card;
+    const ourProb = outcome.ai_model_prob ?? outcome.model_prob;
+    if (ourProb > bestFavProb) {
+      bestFavProb = ourProb;
+      bestFav = {
+        match: m, type: "favorite",
+        side: signal.side as "home" | "draw" | "away",
+        label: outcome.label,
+        ourProb,
+        marketProb: outcome.polymarket_prob,
+        edgePp: outcome.ai_delta_pp ?? outcome.delta_pp,
+        confidence: signal.confidence,
+        reasoning: signal.reasoning,
+        hasAnalysis: true,
+      };
     }
   }
+
   return { value: bestValue, favorite: bestFav };
 }
-
-const CONF_COLOR: Record<string, string> = {
-  alta: "var(--green)",
-  media: "var(--amber)",
-  baja: "var(--muted)",
-};
 
 function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
   const isValue = card.type === "value";
   const accentColor = isValue ? "var(--green)" : "var(--amber)";
   const bg = isValue ? "#f0fdf4" : "#fffbeb";
-  const kelly = card.adjustedProb ? getKellyAmount(bankroll, card.adjustedProb, 2.0) : null;
+  const kelly = card.ourProb ? getKellyAmount(bankroll, card.ourProb, 2.0) : null;
 
   return (
     <div style={{
@@ -145,43 +191,74 @@ function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
       gap: 6,
       minWidth: 0,
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span className="mono" style={{ fontSize: 9, color: accentColor, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-          {isValue ? "⚡ Value Bet" : "✓ Favorito"}
-        </span>
-        <span className="mono" style={{ fontSize: 9, color: CONF_COLOR[card.confidence] }}>
-          conf: {card.confidence}
-        </span>
-      </div>
-      <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)", lineHeight: 1.3 }}>
+      {/* Tipo de señal */}
+      <span className="mono" style={{ fontSize: 9, color: accentColor, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+        {isValue ? "⚡ Oportunidad detectada" : "✓ Favorito con valor"}
+      </span>
+
+      {/* Resultado recomendado */}
+      <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text)", lineHeight: 1.2 }}>
         {card.label}
       </div>
       <div className="mono" style={{ fontSize: 10, color: "var(--muted)" }}>
         {card.match.home_team} vs {card.match.away_team}
       </div>
-      {card.edgePp !== null && (
-        <div className="mono" style={{ fontSize: 11, color: accentColor }}>
-          Edge: {card.edgePp > 0 ? "+" : ""}{card.edgePp.toFixed(1)}pp
-          {card.adjustedProb && (
-            <span style={{ color: "var(--muted)", marginLeft: 8 }}>
-              · Prob IA: {Math.round(card.adjustedProb * 100)}%
-            </span>
+
+      {/* Comparativa de probabilidades — el corazón de la señal */}
+      {card.ourProb !== null && (
+        <div style={{
+          display: "flex", gap: 12, alignItems: "center",
+          padding: "8px 10px",
+          background: "rgba(0,0,0,0.04)",
+          borderRadius: 6,
+          marginTop: 2,
+        }}>
+          <div style={{ textAlign: "center" }}>
+            <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: accentColor, lineHeight: 1 }}>
+              {Math.round(card.ourProb * 100)}%
+            </div>
+            <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>Nuestro modelo</div>
+          </div>
+          <div style={{ fontSize: 16, color: "var(--muted)", fontWeight: 300 }}>vs</div>
+          <div style={{ textAlign: "center" }}>
+            <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: "var(--muted)", lineHeight: 1 }}>
+              {card.marketProb !== null ? `${Math.round(card.marketProb * 100)}%` : "—"}
+            </div>
+            <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>Mercado</div>
+          </div>
+          {card.marketProb !== null && card.ourProb !== null && (
+            <div style={{ marginLeft: "auto", textAlign: "right" }}>
+              <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: accentColor }}>
+                +{Math.round((card.ourProb - card.marketProb) * 100)}%
+              </div>
+              <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>de diferencia</div>
+            </div>
           )}
         </div>
       )}
-      <div style={{
-        fontSize: 11, color: "var(--muted)", lineHeight: 1.5,
-        display: "-webkit-box", WebkitLineClamp: 3,
-        WebkitBoxOrient: "vertical", overflow: "hidden",
-      }}>
-        {card.reasoning}
-      </div>
-      <div className="mono" style={{ fontSize: 10, color: "var(--text)", marginTop: 4 }}>
-        {kelly
-          ? `Kelly (¼): ${kelly.pct}% · ${kelly.amount}€`
-          : <span style={{ color: "var(--muted)" }}>[Requiere análisis IA]</span>
-        }
-      </div>
+
+      {/* Razonamiento IA (si está disponible) */}
+      {card.hasAnalysis && card.reasoning && (
+        <div style={{
+          fontSize: 11, color: "var(--text)", lineHeight: 1.55,
+          display: "-webkit-box", WebkitLineClamp: 3,
+          WebkitBoxOrient: "vertical", overflow: "hidden",
+        }}>
+          {card.reasoning}
+        </div>
+      )}
+      {!card.hasAnalysis && (
+        <div className="mono" style={{ fontSize: 10, color: "var(--muted)", fontStyle: "italic" }}>
+          Señal del modelo matemático · Analiza para ver razonamiento IA
+        </div>
+      )}
+
+      {/* Apuesta sugerida */}
+      {kelly && (
+        <div className="mono" style={{ fontSize: 10, color: "var(--text)", marginTop: 2 }}>
+          Apuesta sugerida: {kelly.pct}% de bankroll · {kelly.amount}€
+        </div>
+      )}
     </div>
   );
 }
