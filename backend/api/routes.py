@@ -54,7 +54,7 @@ def health_check():
 
 
 @router.get("/api/matches/today")
-def get_matches_today(db: Session = Depends(get_db)):
+def get_matches_today(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Return today's matches with model probabilities and market deltas.
 
@@ -88,6 +88,14 @@ def get_matches_today(db: Session = Depends(get_db)):
             match_data = _build_match_response(db, match)
             if match_data:
                 result.append(match_data)
+            # Auto re-analysis: XI confirmed but analysis predates it
+            lineup = match.lineup_data or {}
+            if lineup.get("lineup_confirmed") and (
+                not match.analysis_data
+                or not match.analysis_data.get("lineup_confirmed")
+            ):
+                background_tasks.add_task(_run_analysis_and_store, str(match.id))
+                logger.info("Queued re-analysis for %s vs %s (stale analysis)", match.home_team, match.away_team)
 
         # Sort by best_delta_pp descending
         result.sort(key=lambda x: x["best_delta_pp"] or 0, reverse=True)

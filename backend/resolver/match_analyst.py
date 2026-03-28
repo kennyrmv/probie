@@ -125,16 +125,29 @@ def _synthesize(
     client = anthropic.Anthropic(api_key=api_key)
     kickoff_str = kickoff_dt.strftime("%d %B %Y, %H:%M UTC")
 
-    # Build lineup context if confirmed lineup available
+    # Build lineup context if lineup available
     lineup_context = ""
+    lineup_is_confirmed = bool(lineup_data and lineup_data.get("lineup_confirmed"))
     if lineup_data and lineup_data.get("home_starters"):
-        home_names = [p["name"] for p in lineup_data.get("home_starters", [])[:11]]
-        away_names = [p["name"] for p in lineup_data.get("away_starters", [])[:11]]
+        home_players = lineup_data.get("home_starters", [])[:11]
+        away_players = lineup_data.get("away_starters", [])[:11]
+        home_names = [p["name"] for p in home_players]
+        away_names = [p["name"] for p in away_players]
+        home_missing = lineup_data.get("home_missing", [])
+        away_missing = lineup_data.get("away_missing", [])
+        status_label = "XI OFICIAL CONFIRMADO" if lineup_is_confirmed else "ALINEACIÓN PROBABLE"
+        missing_home_str = (
+            f"\n  Bajas {home_team}: " + ", ".join(f"{p['name']} ({p.get('reason','?')})" for p in home_missing)
+            if home_missing else ""
+        )
+        missing_away_str = (
+            f"\n  Bajas {away_team}: " + ", ".join(f"{p['name']} ({p.get('reason','?')})" for p in away_missing)
+            if away_missing else ""
+        )
         lineup_context = f"""
-ALINEACIÓN CONFIRMADA (API-Football):
-{home_team}: {', '.join(home_names)}
-{away_team}: {', '.join(away_names)}
-Formaciones: {lineup_data.get('home_formation', '?')} vs {lineup_data.get('away_formation', '?')}
+{status_label}:
+{home_team} ({lineup_data.get('home_formation', '?')}): {', '.join(home_names)}{missing_home_str}
+{away_team} ({lineup_data.get('away_formation', '?')}): {', '.join(away_names)}{missing_away_str}
 """
 
     # Build odds context if available
@@ -195,9 +208,9 @@ Analiza este partido como un apostador profesional. Devuelve ÚNICAMENTE este JS
     "type": "value|favorite|none",
     "side": "home|draw|away|null",
     "confidence": "alta|media|baja",
-    "reasoning": "Explicación en 2-3 frases: combina el edge matemático CON el contexto real para dar una recomendación accionable. Si type=value, confirma/refuta el edge. Si type=favorite, explica por qué el favorito está justificado. Si type=none, explica por qué no apostar."
+    "reasoning": "2-3 frases accionables. REGLA: si hay XI confirmado, DEBES mencionar jugadores específicos por nombre (ej: 'Con Mané titular y la baja de X, el ataque senegalés...'). Evalúa la diferencia de calidad real entre los dos XIs. Combina edge matemático + calidad del XI + bajas clave."
   }},
-  "lineup_confirmed": false,
+  "lineup_confirmed": {str(lineup_is_confirmed).lower()},
   "confidence": "alta|media|baja",
   "sources": ["url1", "url2"]
 }}
@@ -266,6 +279,9 @@ def analyze_match(
 
     analysis["analyzed_at"] = datetime.now(timezone.utc).isoformat()
     analysis["source"] = "claude+duckduckgo"
+    # Authoritative: override Claude's lineup_confirmed with what we actually passed in
+    if lineup_data:
+        analysis["lineup_confirmed"] = bool(lineup_data.get("lineup_confirmed"))
 
     logger.info(
         "Analysis complete: confidence=%s, bet_signal=%s/%s, lineup_confirmed=%s, "
