@@ -41,6 +41,9 @@ class Match(Base):
     away_squad = Column(JSONB, nullable=True)
     lineup_data = Column(JSONB, nullable=True)   # confirmed lineups from API-Football
     analysis_data = Column(JSONB, nullable=True) # on-demand AI analysis (Claude+web)
+    home_score = Column(Integer, nullable=True)  # final result (populated post-match)
+    away_score = Column(Integer, nullable=True)
+    match_status = Column(String(20), nullable=False, default="scheduled")  # scheduled|live|finished
 
     predictions = relationship("Prediction", back_populates="match", cascade="all, delete-orphan")
     market_snapshots = relationship("MarketSnapshot", back_populates="match", cascade="all, delete-orphan")

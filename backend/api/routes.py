@@ -213,6 +213,67 @@ def fetch_match_lineup(match_id: str, background_tasks: BackgroundTasks, db: Ses
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+@router.post("/api/matches/{match_id}/result")
+def record_match_result(match_id: str, result: dict, db: Session = Depends(get_db)):
+    """
+    Record the final result of a match.
+    Body: {"home_score": int, "away_score": int}
+    Also marks match_status as "finished" and logs to calibration_log.
+    """
+    import uuid
+    try:
+        mid = uuid.UUID(match_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid match_id")
+
+    match = db.query(Match).filter(Match.id == mid).first()
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    home_score = result.get("home_score")
+    away_score = result.get("away_score")
+    if home_score is None or away_score is None:
+        raise HTTPException(status_code=422, detail="home_score and away_score required")
+
+    match.home_score = int(home_score)
+    match.away_score = int(away_score)
+    match.match_status = "finished"
+
+    # Determine actual result outcome
+    if home_score > away_score:
+        actual = "home"
+    elif away_score > home_score:
+        actual = "away"
+    else:
+        actual = "draw"
+
+    # Log to calibration_log if there's a prediction
+    try:
+        from models import CalibrationLog, Prediction
+        from sqlalchemy import desc as _desc
+        prediction = (
+            db.query(Prediction)
+            .filter(Prediction.match_id == match.id)
+            .order_by(_desc(Prediction.created_at))
+            .first()
+        )
+        if prediction:
+            cal = CalibrationLog(
+                prediction_id=prediction.id,
+                actual_result=actual,
+            )
+            db.add(cal)
+    except Exception as exc:
+        logger.warning("Could not write calibration log for match %s: %s", match_id, exc)
+
+    db.commit()
+    logger.info(
+        "Result recorded: %s vs %s = %d-%d (%s)",
+        match.home_team, match.away_team, home_score, away_score, actual,
+    )
+    return {"status": "ok", "actual_result": actual, "home_score": home_score, "away_score": away_score}
+
+
 @router.post("/api/admin/run-pipeline")
 def admin_run_pipeline():
     """Manually trigger the full daily pipeline (seed + model + Polymarket)."""
@@ -414,6 +475,9 @@ def _build_match_response(db: Session, match: Match) -> dict | None:
         "away_squad": match.away_squad or [],
         "lineup_data": match.lineup_data or None,
         "analysis_data": match.analysis_data or None,
+        "home_score": match.home_score,
+        "away_score": match.away_score,
+        "match_status": match.match_status or "scheduled",
     }
 
 

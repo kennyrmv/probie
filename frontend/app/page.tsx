@@ -59,6 +59,17 @@ interface Match {
   away_squad: { name: string; position: string; nationality: string }[];
   lineup_data: LineupData | null;
   analysis_data: AnalysisData | null;
+  home_score: number | null;
+  away_score: number | null;
+  match_status: string;
+}
+
+function getMatchState(kickoff: string, dbStatus: string): "scheduled" | "live" | "finished" {
+  if (dbStatus === "finished") return "finished";
+  const minsSince = (Date.now() - new Date(kickoff).getTime()) / 60000;
+  if (minsSince < 0) return "scheduled";
+  if (minsSince < 120) return "live";
+  return "finished";
 }
 
 interface BetCard {
@@ -79,6 +90,8 @@ function pickBestBets(matches: Match[]): { value: BetCard | null; favorite: BetC
   let bestFavProb = -Infinity;
 
   for (const m of matches) {
+    // Skip live/finished matches — no point recommending bets on started games
+    if (getMatchState(m.kickoff, m.match_status) !== "scheduled") continue;
     const signal = m.analysis_data?.bet_signal;
     if (!signal || signal.type === "none" || !signal.side) continue;
     const side = signal.side as "home" | "draw" | "away";
@@ -265,9 +278,12 @@ export default function HomePage() {
     return () => clearInterval(id);
   }, [fetchMatches]);
 
-  const highValue = matches.filter(m => m.best_value_tier === "high");
-  const midValue  = matches.filter(m => m.best_value_tier === "mid");
-  const noValue   = matches.filter(m => m.best_value_tier !== "high" && m.best_value_tier !== "mid");
+  const scheduled = matches.filter(m => getMatchState(m.kickoff, m.match_status) === "scheduled");
+  const liveOrFinished = matches.filter(m => getMatchState(m.kickoff, m.match_status) !== "scheduled");
+
+  const highValue = scheduled.filter(m => m.best_value_tier === "high");
+  const midValue  = scheduled.filter(m => m.best_value_tier === "mid");
+  const noValue   = scheduled.filter(m => m.best_value_tier !== "high" && m.best_value_tier !== "mid");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
@@ -354,6 +370,22 @@ export default function HomePage() {
                 </p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {noValue.map((m, i) => (
+                    <MatchCard key={m.id} match={m} delay={i * 50} />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {liveOrFinished.length > 0 && (
+              <section>
+                <p
+                  className="mono"
+                  style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10 }}
+                >
+                  En curso / finalizados · {liveOrFinished.length} {liveOrFinished.length === 1 ? "partido" : "partidos"}
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {liveOrFinished.map((m, i) => (
                     <MatchCard key={m.id} match={m} delay={i * 50} />
                   ))}
                 </div>

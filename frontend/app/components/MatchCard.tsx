@@ -58,6 +58,9 @@ interface Match {
   away_squad: Player[];
   lineup_data: LineupData | null;
   analysis_data: AnalysisData | null;
+  home_score: number | null;
+  away_score: number | null;
+  match_status: string;
 }
 
 function posAbbr(pos: string): string {
@@ -79,6 +82,16 @@ function formatKickoff(iso: string): string {
 
 function minutesToKickoff(iso: string): number {
   return (new Date(iso).getTime() - Date.now()) / 60000;
+}
+
+// Returns "scheduled" | "live" | "finished"
+// Uses kickoff time: live = last 120min, finished = >120min ago
+function getMatchState(kickoff: string, dbStatus: string): "scheduled" | "live" | "finished" {
+  if (dbStatus === "finished") return "finished";
+  const minsSince = -minutesToKickoff(kickoff); // positive = started
+  if (minsSince < 0) return "scheduled";
+  if (minsSince < 120) return "live";
+  return "finished";
 }
 
 const PRIOR_PROBS = new Set([0.4, 0.25, 0.35]);
@@ -306,28 +319,34 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
   const [lineup, setLineup] = useState<LineupData | null>(match.lineup_data);
   const [analysis, setAnalysis] = useState<AnalysisData | null>(match.analysis_data);
 
+  const state = getMatchState(match.kickoff, match.match_status);
+  const isLive = state === "live";
+  const isFinished = state === "finished";
+  const isOver = isLive || isFinished;
+
   const prior = usesPriors(match.outcomes);
   const isHigh = match.best_value_tier === "high";
   const isMid = match.best_value_tier === "mid";
-  const showValueBadge = (isHigh || isMid) && match.best_delta_pp !== null;
+  const showValueBadge = (isHigh || isMid) && match.best_delta_pp !== null && !isOver;
 
   const badgeColor = isHigh ? "var(--green)" : "var(--amber)";
   const deltaSign = match.best_delta_pp !== null && match.best_delta_pp >= 0 ? "+" : "";
 
   const hasConfirmedLineup = !!(lineup?.home_starters?.length);
   const minsToKickoff = minutesToKickoff(match.kickoff);
-  const showLineupButton = !hasConfirmedLineup && minsToKickoff > -120; // before or up to 2h after kickoff
+  const showLineupButton = !hasConfirmedLineup && minsToKickoff > -120 && !isOver;
 
   return (
     <article
       className="fade-in"
       style={{
         animationDelay: `${delay}ms`,
-        border: "1px solid var(--border)",
+        border: `1px solid ${isOver ? "var(--border)" : "var(--border)"}`,
         borderRadius: 10,
         overflow: "hidden",
         background: "var(--surface)",
         boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+        opacity: isFinished ? 0.65 : 1,
       }}
     >
       {/* Card header */}
@@ -362,7 +381,33 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
 
           {/* Right: kickoff + badges */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, marginTop: 2 }}>
-            {hasConfirmedLineup && (
+            {/* Live / Finished badge */}
+            {isLive && (
+              <span className="mono" style={{
+                fontSize: 9,
+                background: "#fef2f2",
+                color: "#dc2626",
+                padding: "2px 6px",
+                borderRadius: 4,
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+              }}>● EN VIVO</span>
+            )}
+            {isFinished && (
+              <span className="mono" style={{
+                fontSize: 9,
+                background: "var(--border)",
+                color: "var(--muted)",
+                padding: "2px 6px",
+                borderRadius: 4,
+                fontWeight: 500,
+              }}>
+                {match.home_score !== null && match.away_score !== null
+                  ? `${match.home_score}-${match.away_score}`
+                  : "FIN"}
+              </span>
+            )}
+            {!isOver && hasConfirmedLineup && (
               <span className="mono" style={{
                 fontSize: 9,
                 background: "#f0fdf4",
@@ -372,7 +417,7 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                 fontWeight: 500,
               }}>XI</span>
             )}
-            {match.analysis_data?.bet_signal && match.analysis_data.bet_signal.type !== "none" && (
+            {!isOver && match.analysis_data?.bet_signal && match.analysis_data.bet_signal.type !== "none" && (
               <span className="mono" style={{
                 fontSize: 9,
                 background: match.analysis_data.bet_signal.type === "value" ? "#f0fdf4" : "#fffbeb",
@@ -384,7 +429,7 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                 {match.analysis_data.bet_signal.type === "value" ? "⚡ EDGE" : "✓ FAV"}
               </span>
             )}
-            <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+            <span className="mono" style={{ fontSize: 11, color: isOver ? "var(--muted)" : "var(--muted)" }}>
               {formatKickoff(match.kickoff)}
             </span>
           </div>
