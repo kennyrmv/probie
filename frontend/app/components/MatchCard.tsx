@@ -131,7 +131,7 @@ function OutcomeCell({ o, usePrior }: { o: Outcome; usePrior: boolean }) {
       </div>
       {/* Market prob */}
       <div className="mono" style={{ fontSize: 9, color: "var(--muted)" }}>
-        Mdo {o.polymarket_prob !== null ? `${(o.polymarket_prob * 100).toFixed(0)}%` : "—"}
+        Mercado {o.polymarket_prob !== null ? `${(o.polymarket_prob * 100).toFixed(0)}%` : "—"}
       </div>
     </div>
   );
@@ -259,7 +259,7 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                   color: analysis!.bet_signal!.type === "value" ? "var(--green)" : "var(--amber)",
                   padding: "1px 5px", borderRadius: 3, fontWeight: 600,
                 }}>
-                  {analysis!.bet_signal!.type === "value" ? "⚡" : "✓"}
+                  {analysis!.bet_signal!.type === "value" ? "⚡ Analizado" : "✓ Analizado"}
                 </span>
               )}
               {prior && !analysis && (
@@ -290,9 +290,9 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                 border: `1px solid ${edgeBorder}`,
                 borderRadius: 6,
                 padding: "2px 8px",
-                letterSpacing: "0.04em",
+                letterSpacing: "0.02em",
               }}>
-                EDGE +{match.best_delta_pp!.toFixed(1)}pp
+                {isHigh ? "⚡ Alta oportunidad" : "↑ Con valor"}
               </span>
             ) : (
               <span style={{

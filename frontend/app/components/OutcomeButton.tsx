@@ -21,10 +21,9 @@ function tierColor(tier: string | null): string {
 
 function deltaLabel(tier: string | null, delta: number | null): string {
   if (delta === null) return "";
-  const sign = delta >= 0 ? "+" : "";
-  if (tier === "high") return `${sign}${delta.toFixed(1)}pp ▲ HIGH`;
-  if (tier === "mid") return `${sign}${delta.toFixed(1)}pp ▲ MID`;
-  return `${sign}${delta.toFixed(1)}pp`;
+  if (tier === "high") return "⚡ El mercado lo infravalora";
+  if (tier === "mid") return "↑ Ligera ventaja detectada";
+  return "";
 }
 
 function outcomeLabel(outcome: string): string {
@@ -111,17 +110,17 @@ export default function OutcomeButton({ o, usePrior }: { o: Outcome; usePrior: b
           {hasAiAdj && <span style={{ fontSize: 8, color: "var(--muted)", marginLeft: 3 }}>IA</span>}
         </div>
         <div style={{ color: "var(--muted)" }}>
-          <span>Mdo&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+          <span>Mercado&nbsp;</span>
           <span style={{ color: "var(--text)" }}>
             {o.polymarket_prob !== null ? `${(o.polymarket_prob * 100).toFixed(0)}%` : "—"}
           </span>
         </div>
       </div>
 
-      {/* Edge badge */}
+      {/* Human-readable edge label */}
       {bestDelta !== null && isValue && (
         <div className="mono" style={{ marginTop: 7, fontSize: 10, color, fontWeight: 500 }}>
-          {bestDelta >= 0 ? "+" : ""}{bestDelta.toFixed(1)}pp {isHigh ? "▲ HIGH" : "▲ MID"}
+          {isHigh ? "⚡ El mercado lo infravalora" : "↑ Ligera ventaja detectada"}
         </div>
       )}
     </div>

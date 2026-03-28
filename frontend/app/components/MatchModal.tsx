@@ -327,14 +327,16 @@ function ModalOutcomeRow({ outcomes }: { outcomes: Outcome[] }) {
             </div>
             <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
               <span style={{ color: isValue ? color : "var(--text)", fontWeight: isValue ? 600 : 400 }}>
-                {(ourProb * 100).toFixed(0)}%
+                Nosotros {(ourProb * 100).toFixed(0)}%
               </span>
               {hasAiAdj && <span style={{ fontSize: 8, marginLeft: 2 }}>IA</span>}
-              <span style={{ color: "var(--muted)" }}> · Mdo {o.polymarket_prob !== null ? `${(o.polymarket_prob * 100).toFixed(0)}%` : "—"}</span>
+            </div>
+            <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+              Mercado {o.polymarket_prob !== null ? `${(o.polymarket_prob * 100).toFixed(0)}%` : "—"}
             </div>
             {isValue && bestDelta !== null && (
-              <div className="mono" style={{ fontSize: 10, color, fontWeight: 600, marginTop: 4 }}>
-                +{bestDelta.toFixed(1)}pp {isHigh ? "▲ HIGH" : "▲ MID"}
+              <div className="mono" style={{ fontSize: 10, color, fontWeight: 600, marginTop: 5 }}>
+                {isHigh ? "⚡ El mercado lo infravalora" : "↑ Ligera ventaja"}
               </div>
             )}
           </div>

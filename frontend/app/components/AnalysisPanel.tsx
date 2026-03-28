@@ -67,9 +67,9 @@ const CONFIDENCE_COLOR: Record<string, string> = {
 };
 
 const SIGNAL_CONFIG = {
-  value: { label: "EDGE REAL", color: "var(--green)", bg: "#f0fdf4", border: "var(--green)" },
-  favorite: { label: "FAVORITO VÁLIDO", color: "var(--amber)", bg: "#fffbeb", border: "var(--amber)" },
-  none: { label: "SIN SEÑAL", color: "var(--muted)", bg: "var(--surface)", border: "var(--border)" },
+  value: { label: "Oportunidad detectada", color: "var(--green)", bg: "#f0fdf4", border: "var(--green)" },
+  favorite: { label: "Favorito con valor", color: "var(--amber)", bg: "#fffbeb", border: "var(--amber)" },
+  none: { label: "Sin señal clara", color: "var(--muted)", bg: "var(--surface)", border: "var(--border)" },
 };
 
 function TopPlayerCard({ player }: { player: TopPlayer }) {
