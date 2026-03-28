@@ -1,11 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import OutcomeButton from "./OutcomeButton";
-import AnalysisPanel from "./AnalysisPanel";
+import { useState } from "react";
+import dynamic from "next/dynamic";
 import TeamFlag from "./TeamFlag";
 import { useTimezone, formatInTz } from "../context/TimezoneContext";
 import type { AnalysisData } from "./AnalysisPanel";
+
+// Lazy-load modal to keep initial bundle small
+const MatchModal = dynamic(() => import("./MatchModal"), { ssr: false });
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface Outcome {
   outcome: string;
@@ -66,25 +70,15 @@ interface Match {
   match_status: string;
 }
 
-function posAbbr(pos: string): string {
-  if (pos === "Goalkeeper" || pos === "G") return "GK";
-  if (pos === "Defence" || pos === "D") return "DEF";
-  if (pos === "Midfield" || pos === "M") return "MID";
-  if (pos === "Offence" || pos === "F" || pos === "A") return "FWD";
-  return pos;
-}
-
-// formatKickoff now comes from TimezoneContext (formatInTz)
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function minutesToKickoff(iso: string): number {
   return (new Date(iso).getTime() - Date.now()) / 60000;
 }
 
-// Returns "scheduled" | "live" | "finished"
-// Uses kickoff time: live = last 120min, finished = >120min ago
 function getMatchState(kickoff: string, dbStatus: string): "scheduled" | "live" | "finished" {
   if (dbStatus === "finished") return "finished";
-  const minsSince = -minutesToKickoff(kickoff); // positive = started
+  const minsSince = -minutesToKickoff(kickoff);
   if (minsSince < 0) return "scheduled";
   if (minsSince < 120) return "live";
   return "finished";
@@ -95,229 +89,61 @@ function usesPriors(outcomes: Outcome[]): boolean {
   return outcomes.every(o => PRIOR_PROBS.has(o.model_prob));
 }
 
-// ─── Confirmed lineup panel ────────────────────────────────────────────────
+// ── Compact outcome cell ─────────────────────────────────────────────────────
 
-function LineupPanel({ match, lineup }: { match: Match; lineup: LineupData }) {
-  if (!lineup || lineup.home_starters.length === 0) return null;
+function OutcomeCell({ o, usePrior }: { o: Outcome; usePrior: boolean }) {
+  const LABEL: Record<string, string> = { home: "LOCAL", draw: "EMPATE", away: "VISITA" };
+  const hasAiAdj = o.ai_model_prob !== null && o.ai_model_prob !== undefined;
+  const ourProb = hasAiAdj ? o.ai_model_prob! : o.model_prob;
+  const bestDelta = hasAiAdj && o.ai_delta_pp !== null ? o.ai_delta_pp : o.delta_pp;
+  const isHigh = bestDelta !== null && bestDelta >= 10;
+  const isMid = bestDelta !== null && bestDelta >= 5 && !isHigh;
+  const isValue = isHigh || isMid;
+  const color = isHigh ? "var(--green)" : isMid ? "var(--amber)" : "var(--muted)";
 
   return (
-    <div style={{ padding: "8px 16px 12px", borderTop: "1px solid var(--border)" }}>
-      {/* Formation badges */}
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-        <span className="mono" style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-          {match.home_team} · {lineup.home_formation || "—"}
-        </span>
-        <span className="mono" style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-          {lineup.away_formation || "—"} · {match.away_team}
-        </span>
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 1,
+      flex: 1,
+    }}>
+      {/* Label */}
+      <div className="mono" style={{
+        fontSize: 8,
+        textTransform: "uppercase",
+        letterSpacing: "0.08em",
+        color: "var(--muted)",
+        marginBottom: 2,
+      }}>
+        {LABEL[o.outcome] || o.outcome}
       </div>
-
-      <div style={{ display: "flex", gap: 16 }}>
-        <div style={{ flex: 1 }}>
-          {lineup.home_starters.slice(0, 11).map((p, i) => (
-            <div key={i} className="mono" style={{ fontSize: 10, color: "var(--muted)", lineHeight: 1.7 }}>
-              <span style={{ color: "var(--text)", fontWeight: 500 }}>{p.name}</span>
-              {" · "}{posAbbr(p.position)}
-            </div>
-          ))}
-          {(lineup.home_missing || []).length > 0 && (
-            <div style={{ marginTop: 4 }}>
-              {lineup.home_missing.map((p, i) => (
-                <div key={i} className="mono" style={{ fontSize: 10, color: "var(--red, #dc2626)", lineHeight: 1.7 }}>
-                  ✕ {p.name} · {p.reason}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div style={{ flex: 1 }}>
-          {lineup.away_starters.slice(0, 11).map((p, i) => (
-            <div key={i} className="mono" style={{ fontSize: 10, color: "var(--muted)", lineHeight: 1.7 }}>
-              <span style={{ color: "var(--text)", fontWeight: 500 }}>{p.name}</span>
-              {" · "}{posAbbr(p.position)}
-            </div>
-          ))}
-          {(lineup.away_missing || []).length > 0 && (
-            <div style={{ marginTop: 4 }}>
-              {lineup.away_missing.map((p, i) => (
-                <div key={i} className="mono" style={{ fontSize: 10, color: "var(--red, #dc2626)", lineHeight: 1.7 }}>
-                  ✕ {p.name} · {p.reason}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Our prob */}
+      <div className="mono" style={{
+        fontSize: 13,
+        fontWeight: isValue ? 700 : 500,
+        color: isValue ? color : "var(--text)",
+        lineHeight: 1,
+      }}>
+        {(ourProb * 100).toFixed(0)}%
+        {hasAiAdj && <span style={{ fontSize: 8, fontWeight: 400, marginLeft: 1 }}>IA</span>}
       </div>
-
-      <div style={{ marginTop: 6 }}>
-        <span className="mono" style={{ fontSize: 9, color: "var(--muted)" }}>
-          Alineación confirmada · {lineup.source === "claude+duckduckgo" ? "IA+Web" : "API-Football"}
-        </span>
+      {/* Market prob */}
+      <div className="mono" style={{ fontSize: 9, color: "var(--muted)" }}>
+        Mdo {o.polymarket_prob !== null ? `${(o.polymarket_prob * 100).toFixed(0)}%` : "—"}
       </div>
     </div>
   );
 }
 
-// ─── Squad fallback panel ──────────────────────────────────────────────────
-
-function SquadPanel({ match, hasConfirmedLineup }: { match: Match; hasConfirmedLineup: boolean }) {
-  if (hasConfirmedLineup) return null;
-  if (!match.home_squad?.length && !match.away_squad?.length) return null;
-
-  return (
-    <div style={{ padding: "8px 16px 12px", borderTop: "1px solid var(--border)" }}>
-      <div style={{ display: "flex", gap: 16 }}>
-        <div style={{ flex: 1 }}>
-          <p style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6, fontFamily: "var(--mono)" }}>
-            {match.home_team}
-          </p>
-          {(match.home_squad || []).slice(0, 6).map((p, i) => (
-            <div key={i} className="mono" style={{ fontSize: 10, color: "var(--muted)", lineHeight: 1.7 }}>
-              <span style={{ color: "var(--text)", fontWeight: 500 }}>{p.name}</span>
-              {" · "}{posAbbr(p.position)}{p.nationality ? ` · ${p.nationality}` : ""}
-            </div>
-          ))}
-        </div>
-        <div style={{ flex: 1 }}>
-          <p style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6, fontFamily: "var(--mono)" }}>
-            {match.away_team}
-          </p>
-          {(match.away_squad || []).slice(0, 6).map((p, i) => (
-            <div key={i} className="mono" style={{ fontSize: 10, color: "var(--muted)", lineHeight: 1.7 }}>
-              <span style={{ color: "var(--text)", fontWeight: 500 }}>{p.name}</span>
-              {" · "}{posAbbr(p.position)}{p.nationality ? ` · ${p.nationality}` : ""}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Lineup fetch button ───────────────────────────────────────────────────
-
-function LineupFetchButton({
-  matchId,
-  kickoff,
-  hasProbableLineup,
-  onLineupFetched,
-  onAnalysisReady,
-}: {
-  matchId: string;
-  kickoff: string;
-  hasProbableLineup: boolean;
-  onLineupFetched: (lineup: LineupData) => void;
-  onAnalysisReady: (analysis: AnalysisData) => void;
-}) {
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [polling, setPolling] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, []);
-
-  const minsToKickoff = minutesToKickoff(kickoff);
-  const isClose = minsToKickoff <= 90;   // within 90min of kickoff
-
-  const startPolling = () => {
-    setPolling(true);
-    setMessage("Analizando…");
-    let polls = 0;
-    pollRef.current = setInterval(async () => {
-      polls++;
-      try {
-        const res = await fetch("/api/matches/today", { cache: "no-store" });
-        const data: Match[] = await res.json();
-        const updated = data.find((m: Match) => m.id === matchId);
-        if (updated?.analysis_data) {
-          clearInterval(pollRef.current!);
-          pollRef.current = null;
-          setPolling(false);
-          setMessage(null);
-          onAnalysisReady(updated.analysis_data);
-          return;
-        }
-      } catch {
-        // silently retry
-      }
-      if (polls >= 4) {
-        clearInterval(pollRef.current!);
-        pollRef.current = null;
-        setPolling(false);
-        setMessage("Análisis no disponible aún");
-      }
-    }, 30_000);
-  };
-
-  const fetchLineup = async () => {
-    setLoading(true);
-    setMessage(null);
-    try {
-      const res = await fetch(`/api/matches/${matchId}/fetch-lineup`, {
-        method: "POST",
-      });
-      const ct = res.headers.get("content-type") ?? "";
-      if (!ct.includes("application/json")) {
-        throw new Error(`Error del servidor (HTTP ${res.status})`);
-      }
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.detail || `HTTP ${res.status}`);
-      if (json.status === "ok" && json.lineup) {
-        onLineupFetched(json.lineup);
-        if (json.auto_analysis_triggered) {
-          startPolling();
-        }
-      } else {
-        setMessage(json.message || "Alineación no disponible aún");
-      }
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Error al obtener alineación");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <button
-        onClick={fetchLineup}
-        disabled={loading}
-        style={{
-          fontSize: 10,
-          fontFamily: "var(--mono)",
-          color: isClose ? "var(--green)" : "var(--muted)",
-          background: "var(--bg)",
-          border: `1px solid ${isClose ? "var(--green)" : "var(--border)"}`,
-          borderRadius: 5,
-          padding: "3px 10px",
-          cursor: loading ? "wait" : "pointer",
-          display: "flex",
-          alignItems: "center",
-          gap: 5,
-          opacity: loading ? 0.6 : 1,
-        }}
-      >
-        {loading ? "⏳" : "📋"}{" "}
-        {loading ? "Buscando…" : hasProbableLineup ? "Actualizar XI oficial" : "Ver Alineación"}
-        {!loading && !isClose && (
-          <span style={{ color: "var(--muted)", fontSize: 9 }}>({Math.round(minsToKickoff / 60)}h)</span>
-        )}
-      </button>
-      {message && (
-        <span className="mono" style={{ fontSize: 9, color: "var(--muted)" }}>{message}</span>
-      )}
-    </div>
-  );
-}
-
-// ─── Main card ────────────────────────────────────────────────────────────
+// ── Main card (compact row) ──────────────────────────────────────────────────
 
 export default function MatchCard({ match, delay }: { match: Match; delay: number }) {
   const { tz } = useTimezone();
   const [lineup, setLineup] = useState<LineupData | null>(match.lineup_data);
   const [analysis, setAnalysis] = useState<AnalysisData | null>(match.analysis_data);
+  const [open, setOpen] = useState(false);
 
   const state = getMatchState(match.kickoff, match.match_status);
   const isLive = state === "live";
@@ -327,190 +153,172 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
   const prior = usesPriors(match.outcomes);
   const isHigh = match.best_value_tier === "high";
   const isMid = match.best_value_tier === "mid";
-  const showValueBadge = (isHigh || isMid) && match.best_delta_pp !== null && !isOver;
+  const showEdge = (isHigh || isMid) && match.best_delta_pp !== null && !isOver;
+  const hasAnalysis = !!(analysis?.bet_signal && analysis.bet_signal.type !== "none");
+  const hasLineup = !!(lineup?.home_starters?.length);
 
-  const badgeColor = isHigh ? "var(--green)" : "var(--amber)";
-  const deltaSign = match.best_delta_pp !== null && match.best_delta_pp >= 0 ? "+" : "";
-
-  const hasStarters = !!(lineup?.home_starters?.length);
-  const isLineupConfirmed = !!(lineup?.lineup_confirmed);
-  const hasConfirmedLineup = hasStarters && isLineupConfirmed;
-  const minsToKickoff = minutesToKickoff(match.kickoff);
-  // Show fetch button if: no lineup yet, OR lineup is only probable (not officially confirmed)
-  const showLineupButton = !isOver && minsToKickoff > -120 && (!hasStarters || !isLineupConfirmed);
+  const edgeColor = isHigh ? "var(--green)" : "var(--amber)";
+  const edgeBg = isHigh ? "#f0fdf4" : "#fffbeb";
+  const edgeBorder = isHigh ? "var(--green)" : "var(--amber)";
 
   return (
-    <article
-      className="fade-in"
-      style={{
-        animationDelay: `${delay}ms`,
-        border: `1px solid ${isOver ? "var(--border)" : "var(--border)"}`,
-        borderRadius: 10,
-        overflow: "hidden",
-        background: "var(--surface)",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-        opacity: isFinished ? 0.65 : 1,
-      }}
-    >
-      {/* Card header */}
-      <div style={{ padding: "12px 16px 10px" }}>
-        {/* Teams row with flags */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-          {/* Home team */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
-            <TeamFlag team={match.home_team} size={26} />
-            <span style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: "var(--text)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}>
-              {match.home_team}
-            </span>
-          </div>
+    <>
+      <article
+        className="fade-in"
+        onClick={() => setOpen(true)}
+        style={{
+          animationDelay: `${delay}ms`,
+          border: "1px solid var(--border)",
+          borderRadius: 10,
+          background: "var(--surface)",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+          opacity: isFinished ? 0.6 : 1,
+          cursor: "pointer",
+          transition: "box-shadow 0.15s, border-color 0.15s",
+        }}
+        onMouseEnter={e => {
+          (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 16px rgba(0,0,0,0.10)";
+          (e.currentTarget as HTMLElement).style.borderColor = "#c8c8c4";
+        }}
+        onMouseLeave={e => {
+          (e.currentTarget as HTMLElement).style.boxShadow = "0 1px 3px rgba(0,0,0,0.05)";
+          (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
+        }}
+      >
+        <div style={{
+          padding: "14px 16px",
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1.6fr) 1fr auto",
+          alignItems: "center",
+          gap: 12,
+        }}>
 
-          {/* Center: vs / score / live */}
-          <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-            {isLive && (
-              <span className="mono" style={{
-                fontSize: 8,
-                background: "#fef2f2",
-                color: "#dc2626",
-                padding: "1px 5px",
-                borderRadius: 3,
-                fontWeight: 700,
-                letterSpacing: "0.06em",
-              }}>● LIVE</span>
-            )}
-            {isFinished ? (
-              <span className="mono" style={{
+          {/* ── Left: teams ── */}
+          <div style={{ minWidth: 0 }}>
+            {/* Home */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+              <TeamFlag team={match.home_team} size={22} />
+              <span style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: "var(--text)",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}>
+                {match.home_team}
+              </span>
+              {isLive && (
+                <span style={{
+                  fontSize: 8,
+                  background: "#fef2f2",
+                  color: "#dc2626",
+                  padding: "1px 5px",
+                  borderRadius: 3,
+                  fontFamily: "var(--mono)",
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  flexShrink: 0,
+                }}>● LIVE</span>
+              )}
+              {isFinished && match.home_score !== null && match.away_score !== null && (
+                <span className="mono" style={{ fontSize: 11, color: "var(--muted)", flexShrink: 0 }}>
+                  {match.home_score}–{match.away_score}
+                </span>
+              )}
+            </div>
+            {/* Away */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <TeamFlag team={match.away_team} size={22} />
+              <span style={{
                 fontSize: 13,
-                fontWeight: 700,
+                fontWeight: 400,
                 color: "var(--muted)",
-                letterSpacing: "0.05em",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
               }}>
-                {match.home_score !== null && match.away_score !== null
-                  ? `${match.home_score} – ${match.away_score}`
-                  : "FIN"}
+                {match.away_team}
               </span>
-            ) : (
-              <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 400 }}>vs</span>
-            )}
+            </div>
+            {/* Competition + badges */}
+            <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+              <span className="mono" style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                {match.competition}
+              </span>
+              {hasLineup && (
+                <span className="mono" style={{
+                  fontSize: 8, background: "#f0fdf4", color: "var(--green)",
+                  padding: "1px 5px", borderRadius: 3, fontWeight: 600,
+                }}>XI</span>
+              )}
+              {hasAnalysis && (
+                <span className="mono" style={{
+                  fontSize: 8,
+                  background: analysis!.bet_signal!.type === "value" ? "#f0fdf4" : "#fffbeb",
+                  color: analysis!.bet_signal!.type === "value" ? "var(--green)" : "var(--amber)",
+                  padding: "1px 5px", borderRadius: 3, fontWeight: 600,
+                }}>
+                  {analysis!.bet_signal!.type === "value" ? "⚡" : "✓"}
+                </span>
+              )}
+              {prior && !analysis && (
+                <span className="mono" style={{ fontSize: 8, color: "var(--amber)" }}>⚠ priors</span>
+              )}
+            </div>
           </div>
 
-          {/* Away team */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1, justifyContent: "flex-end" }}>
-            <span style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: "var(--text)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              textAlign: "right",
-            }}>
-              {match.away_team}
-            </span>
-            <TeamFlag team={match.away_team} size={26} />
+          {/* ── Middle: outcome probabilities ── */}
+          <div style={{ display: "flex", gap: 0, justifyContent: "space-between" }}>
+            {match.outcomes.map(o => (
+              <OutcomeCell key={o.outcome} o={o} usePrior={prior} />
+            ))}
           </div>
-        </div>
 
-        {/* Competition + kickoff row */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{
-            fontSize: 9,
-            textTransform: "uppercase",
-            letterSpacing: "0.1em",
-            color: "var(--muted)",
-            fontFamily: "var(--mono)",
-          }}>
-            {match.competition}
-          </span>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {!isOver && hasConfirmedLineup && (
-              <span className="mono" style={{
-                fontSize: 9, background: "#f0fdf4", color: "var(--green)",
-                padding: "2px 5px", borderRadius: 4, fontWeight: 500,
-              }}>XI</span>
-            )}
-            {!isOver && match.analysis_data?.bet_signal && match.analysis_data.bet_signal.type !== "none" && (
-              <span className="mono" style={{
-                fontSize: 9,
-                background: match.analysis_data.bet_signal.type === "value" ? "#f0fdf4" : "#fffbeb",
-                color: match.analysis_data.bet_signal.type === "value" ? "var(--green)" : "var(--amber)",
-                padding: "2px 5px", borderRadius: 4, fontWeight: 500,
-              }}>
-                {match.analysis_data.bet_signal.type === "value" ? "⚡ EDGE" : "✓ FAV"}
-              </span>
-            )}
-            {showValueBadge && (
-              <span className="mono" style={{ fontSize: 10, color: badgeColor, fontWeight: 500 }}>
-                {deltaSign}{match.best_delta_pp!.toFixed(1)}pp
-              </span>
-            )}
-            <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+          {/* ── Right: time + edge badge ── */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+            <span className="mono" style={{ fontSize: 12, color: "var(--text)", fontWeight: 500 }}>
               {formatInTz(match.kickoff, tz)}
             </span>
-          </div>
-        </div>
-
-        {/* Prior warning */}
-        {prior && !analysis && (
-          <div style={{ marginTop: 5 }}>
-            <span style={{ fontSize: 10, color: "var(--amber)", fontFamily: "var(--mono)" }}>⚠ Usando priors de liga</span>
-          </div>
-        )}
-      </div>
-
-      {/* Outcomes row */}
-      <div style={{ padding: "0 16px 14px", display: "flex", gap: 8 }}>
-        {match.outcomes.map(o => (
-          <OutcomeButton key={o.outcome} o={o} usePrior={prior} />
-        ))}
-      </div>
-
-      {/* Lineup fetch button — shown when no lineup or lineup is only probable */}
-      {showLineupButton && (
-        <div style={{ padding: "0 16px 12px", borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-          <LineupFetchButton
-            matchId={match.id}
-            kickoff={match.kickoff}
-            hasProbableLineup={hasStarters && !isLineupConfirmed}
-            onLineupFetched={setLineup}
-            onAnalysisReady={setAnalysis}
-          />
-        </div>
-      )}
-
-      {/* Lineup panel — shows for both probable and confirmed lineups */}
-      {hasStarters && <LineupPanel match={match} lineup={lineup!} />}
-
-      {/* Squad fallback — only when no starters at all */}
-      <SquadPanel match={match} hasConfirmedLineup={hasStarters} />
-
-      {/* AI analysis panel */}
-      <AnalysisPanel
-        matchId={match.id}
-        homeTeam={match.home_team}
-        awayTeam={match.away_team}
-        initialData={analysis}
-      />
-
-      {/* Reasons */}
-      {match.reasons && match.reasons.length > 0 && (
-        <div style={{ padding: "8px 16px 12px", borderTop: "1px solid var(--border)" }}>
-          <span style={{ fontSize: 10, color: "var(--muted)" }}>
-            {match.reasons.map((r, i) => (
-              <span key={i}>
-                {i > 0 && <span style={{ margin: "0 5px" }}>·</span>}
-                {r.text}
+            {showEdge ? (
+              <span style={{
+                fontSize: 10,
+                fontFamily: "var(--mono)",
+                fontWeight: 700,
+                color: edgeColor,
+                background: edgeBg,
+                border: `1px solid ${edgeBorder}`,
+                borderRadius: 6,
+                padding: "2px 8px",
+                letterSpacing: "0.04em",
+              }}>
+                EDGE +{match.best_delta_pp!.toFixed(1)}pp
               </span>
-            ))}
-          </span>
+            ) : (
+              <span style={{
+                fontSize: 9,
+                fontFamily: "var(--mono)",
+                color: "var(--muted)",
+                opacity: 0.6,
+              }}>
+                Ver análisis →
+              </span>
+            )}
+          </div>
         </div>
+      </article>
+
+      {/* Modal */}
+      {open && (
+        <MatchModal
+          match={match}
+          onClose={() => setOpen(false)}
+          lineup={lineup}
+          analysis={analysis}
+          onLineupFetched={l => { setLineup(l); }}
+          onAnalysisReady={a => { setAnalysis(a); }}
+        />
       )}
-    </article>
+    </>
   );
 }
