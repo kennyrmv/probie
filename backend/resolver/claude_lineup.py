@@ -43,15 +43,38 @@ def _search(query: str, max_results: int = 5) -> list[dict]:
         return []
 
 
+def _fetch_page(url: str, max_chars: int = 3000) -> str:
+    """Fetch plain text from a URL. Returns empty string on failure."""
+    try:
+        import httpx
+        resp = httpx.get(url, timeout=8.0, follow_redirects=True, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; LineupBot/1.0)"
+        })
+        if resp.status_code != 200:
+            return ""
+        # Strip HTML tags crudely but effectively
+        text = re.sub(r"<style[^>]*>[\s\S]*?</style>", " ", resp.text, flags=re.IGNORECASE)
+        text = re.sub(r"<script[^>]*>[\s\S]*?</script>", " ", text, flags=re.IGNORECASE)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"\s{3,}", "\n", text)
+        return text[:max_chars]
+    except Exception as exc:
+        logger.debug("Page fetch failed for %s: %s", url, exc)
+        return ""
+
+
 def _gather_lineup_results(home_team: str, away_team: str, kickoff_dt: datetime) -> str:
     date_str = kickoff_dt.strftime("%Y-%m-%d")
+    # Prioritize queries that find official/confirmed lineups published today
     queries = [
-        f"{home_team} vs {away_team} confirmed starting lineup XI {date_str}",
-        f"{home_team} starting eleven formation {date_str}",
-        f"{away_team} starting eleven formation {date_str}",
+        f"{home_team} {away_team} official lineup confirmed starting XI today",
+        f"{home_team} vs {away_team} lineups {date_str} site:sofascore.com OR site:flashscore.com OR site:bbc.com OR site:espn.com",
+        f"{home_team} vs {away_team} confirmed starting XI {date_str}",
     ]
 
     all_results: list[str] = []
+    fetched_urls: set[str] = set()
+
     for query in queries:
         results = _search(query, max_results=5)
         if not results:
@@ -60,7 +83,16 @@ def _gather_lineup_results(home_team: str, away_team: str, kickoff_dt: datetime)
         for r in results:
             all_results.append(f"[{r['title']}] ({r['url']})")
             if r["snippet"]:
-                all_results.append(r["snippet"][:400])
+                all_results.append(r["snippet"][:300])
+            # Fetch full page for lineup-specific URLs
+            url = r.get("url", "")
+            if url and url not in fetched_urls and any(k in url for k in [
+                "lineup", "starting-xi", "starting_xi", "lineups", "sofascore", "flashscore"
+            ]):
+                page_text = _fetch_page(url)
+                if page_text:
+                    all_results.append(f"[PAGE CONTENT from {url}]:\n{page_text}")
+                fetched_urls.add(url)
 
     return "\n".join(all_results) if all_results else ""
 
