@@ -282,16 +282,28 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
             </span>
             {(() => {
               const aiSignal = analysis?.bet_signal?.type;
-              // IA analizó y confirmó valor → badge positivo
-              if (showEdge && (aiSignal === "value" || aiSignal === "favorite")) {
+              // IA analizó y confirmó → badge positivo
+              if (showEdge && aiSignal === "value") {
                 return (
                   <span style={{
                     fontSize: 10, fontFamily: "var(--mono)", fontWeight: 700,
-                    color: edgeColor, background: edgeBg,
-                    border: `1px solid ${edgeBorder}`,
+                    color: "var(--green)", background: "#f0fdf4",
+                    border: "1px solid var(--green)",
                     borderRadius: 6, padding: "2px 8px", letterSpacing: "0.02em",
                   }}>
-                    {aiSignal === "value" ? "⚡ Confirmado" : "✓ Favorito"}
+                    ⚡ Edge confirmado
+                  </span>
+                );
+              }
+              if (aiSignal === "strength") {
+                return (
+                  <span style={{
+                    fontSize: 10, fontFamily: "var(--mono)", fontWeight: 700,
+                    color: "#7c3aed", background: "#f5f3ff",
+                    border: "1px solid #a78bfa",
+                    borderRadius: 6, padding: "2px 8px", letterSpacing: "0.02em",
+                  }}>
+                    💪 Apuesta de fuerza
                   </span>
                 );
               }

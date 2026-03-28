@@ -74,7 +74,7 @@ function getMatchState(kickoff: string, dbStatus: string): "scheduled" | "live" 
 
 interface BetCard {
   match: Match;
-  type: "value" | "favorite";
+  type: "value" | "strength";
   side: "home" | "draw" | "away";
   label: string;
   ourProb: number | null;
@@ -82,23 +82,22 @@ interface BetCard {
   edgePp: number | null;
   confidence: "alta" | "media" | "baja";
   reasoning: string;
+  strengthReasons: string[];
   hasAnalysis: boolean;
 }
 
-function pickBestBets(matches: Match[]): { value: BetCard | null; favorite: BetCard | null } {
+function pickBestBets(matches: Match[]): { value: BetCard | null; strength: BetCard | null } {
   const scheduled = matches.filter(m => getMatchState(m.kickoff, m.match_status) === "scheduled");
 
-  // ── Best VALUE: highest edge from model, enriched with analysis if available ──
+  // ── Best VALUE: ineficiencia de mercado confirmada por IA, o modelo si no hay análisis ──
   let bestValue: BetCard | null = null;
   let bestValueEdge = -Infinity;
 
   for (const m of scheduled) {
-    if (!m.best_delta_pp || m.best_delta_pp < 5) continue; // minimum 5pp edge
-
+    if (!m.best_delta_pp || m.best_delta_pp < 5) continue;
     const signal = m.analysis_data?.bet_signal;
 
     if (signal && signal.type === "value" && signal.side) {
-      // Analysis agrees: use analyzed side + reasoning
       const outcome = m.outcomes.find(o => o.outcome === signal.side);
       if (!outcome) continue;
       const edgePp = outcome.ai_delta_pp ?? outcome.delta_pp;
@@ -113,11 +112,12 @@ function pickBestBets(matches: Match[]): { value: BetCard | null; favorite: BetC
           edgePp,
           confidence: signal.confidence,
           reasoning: signal.reasoning,
+          strengthReasons: [],
           hasAnalysis: true,
         };
       }
     } else if (!m.analysis_data) {
-      // No analysis at all: fall back to model — pick the outcome with highest delta
+      // Sin análisis: fallback al modelo
       const bestOutcome = m.outcomes.reduce<Outcome | null>((best, o) => {
         const d = o.ai_delta_pp ?? o.delta_pp;
         const bd = best ? (best.ai_delta_pp ?? best.delta_pp) : null;
@@ -138,51 +138,55 @@ function pickBestBets(matches: Match[]): { value: BetCard | null; favorite: BetC
           edgePp,
           confidence: "media",
           reasoning: "",
+          strengthReasons: [],
           hasAnalysis: false,
         };
       }
     }
   }
 
-  // ── Best FAVORITE: requires analysis to know which side to back ──
-  let bestFav: BetCard | null = null;
-  let bestFavProb = -Infinity;
+  // ── Best STRENGTH: apuesta de convicción cualitativa ──
+  let bestStrength: BetCard | null = null;
+  let bestStrengthConf = 0; // alta=3, media=2, baja=1
 
   for (const m of scheduled) {
     const signal = m.analysis_data?.bet_signal;
-    if (!signal || signal.type !== "favorite" || !signal.side) continue;
+    if (!signal || signal.type !== "strength" || !signal.side) continue;
     const outcome = m.outcomes.find(o => o.outcome === signal.side);
     if (!outcome) continue;
-    const ourProb = outcome.ai_model_prob ?? outcome.model_prob;
-    if (ourProb > bestFavProb) {
-      bestFavProb = ourProb;
-      bestFav = {
-        match: m, type: "favorite",
+    const confScore = signal.confidence === "alta" ? 3 : signal.confidence === "media" ? 2 : 1;
+    if (confScore > bestStrengthConf) {
+      bestStrengthConf = confScore;
+      bestStrength = {
+        match: m, type: "strength",
         side: signal.side as "home" | "draw" | "away",
         label: outcome.label,
-        ourProb,
+        ourProb: outcome.ai_model_prob ?? outcome.model_prob,
         marketProb: outcome.polymarket_prob,
         edgePp: outcome.ai_delta_pp ?? outcome.delta_pp,
         confidence: signal.confidence,
         reasoning: signal.reasoning,
+        strengthReasons: signal.strength_reasons ?? [],
         hasAnalysis: true,
       };
     }
   }
 
-  return { value: bestValue, favorite: bestFav };
+  return { value: bestValue, strength: bestStrength };
 }
 
 function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
   const isValue = card.type === "value";
-  const accentColor = isValue ? "var(--green)" : "var(--amber)";
-  const bg = isValue ? "#f0fdf4" : "#fffbeb";
+  const isStrength = card.type === "strength";
+  const accentColor = isValue ? "var(--green)" : "#7c3aed";
+  const borderColor = isValue ? "var(--green)" : "#a78bfa";
+  const bg = isValue ? "#f0fdf4" : "#f5f3ff";
   const kelly = card.ourProb ? getKellyAmount(bankroll, card.ourProb, 2.0) : null;
 
   return (
     <div style={{
       flex: 1,
-      border: `1.5px solid ${accentColor}`,
+      border: `1.5px solid ${borderColor}`,
       borderRadius: 8,
       padding: "12px 14px",
       background: bg,
@@ -193,7 +197,7 @@ function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
     }}>
       {/* Tipo de señal */}
       <span className="mono" style={{ fontSize: 9, color: accentColor, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-        {isValue ? "⚡ Oportunidad detectada" : "✓ Favorito con valor"}
+        {isValue ? "⚡ Edge de mercado" : "💪 Apuesta de fuerza"}
       </span>
 
       {/* Resultado recomendado */}
@@ -204,7 +208,7 @@ function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
         {card.match.home_team} vs {card.match.away_team}
       </div>
 
-      {/* Comparativa de probabilidades — el corazón de la señal */}
+      {/* Probabilidades */}
       {card.ourProb !== null && (
         <div style={{
           display: "flex", gap: 12, alignItems: "center",
@@ -226,23 +230,38 @@ function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
             </div>
             <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>Mercado</div>
           </div>
-          {card.marketProb !== null && card.ourProb !== null && (
+          {isValue && card.marketProb !== null && card.ourProb !== null && (
             <div style={{ marginLeft: "auto", textAlign: "right" }}>
               <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: accentColor }}>
                 +{Math.round((card.ourProb - card.marketProb) * 100)}%
               </div>
-              <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>de diferencia</div>
+              <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>vs mercado</div>
             </div>
           )}
         </div>
       )}
 
-      {/* Razonamiento IA (si está disponible) */}
+      {/* Razones de fuerza */}
+      {isStrength && card.strengthReasons.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 2 }}>
+          {card.strengthReasons.slice(0, 4).map((r, i) => (
+            <div key={i} style={{ fontSize: 11, color: "var(--text)", lineHeight: 1.5, display: "flex", gap: 6 }}>
+              <span style={{ color: accentColor, flexShrink: 0, fontWeight: 700 }}>✓</span>
+              <span>{r}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Razonamiento IA */}
       {card.hasAnalysis && card.reasoning && (
         <div style={{
-          fontSize: 11, color: "var(--text)", lineHeight: 1.55,
-          display: "-webkit-box", WebkitLineClamp: 3,
+          fontSize: 11, color: "var(--muted)", lineHeight: 1.55,
+          display: "-webkit-box", WebkitLineClamp: 2,
           WebkitBoxOrient: "vertical", overflow: "hidden",
+          marginTop: isStrength ? 4 : 0,
+          borderTop: isStrength ? "1px solid rgba(0,0,0,0.08)" : "none",
+          paddingTop: isStrength ? 6 : 0,
         }}>
           {card.reasoning}
         </div>
@@ -264,8 +283,8 @@ function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
 }
 
 function VeredictoDia({ matches, bankroll }: { matches: Match[]; bankroll: number }) {
-  const { value, favorite } = pickBestBets(matches);
-  if (!value && !favorite) return null;
+  const { value, strength } = pickBestBets(matches);
+  if (!value && !strength) return null;
 
   return (
     <div style={{
@@ -279,12 +298,12 @@ function VeredictoDia({ matches, bankroll }: { matches: Match[]; bankroll: numbe
       <p className="mono" style={{ fontSize: 11, color: "var(--muted)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>
         Veredicto del día
       </p>
-      {(!value && !favorite) ? (
-        <p style={{ fontSize: 13, color: "var(--muted)" }}>No hay apuestas recomendadas hoy</p>
+      {(!value && !strength) ? (
+        <p style={{ fontSize: 13, color: "var(--muted)" }}>No hay señales claras hoy</p>
       ) : (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          {value && <BetCardBox card={value} bankroll={bankroll} />}
-          {favorite && <BetCardBox card={favorite} bankroll={bankroll} />}
+          {value    && <BetCardBox card={value}    bankroll={bankroll} />}
+          {strength && <BetCardBox card={strength} bankroll={bankroll} />}
         </div>
       )}
     </div>

@@ -15,10 +15,11 @@ interface TopPlayer {
 }
 
 interface BetSignal {
-  type: "value" | "favorite" | "none";
+  type: "value" | "strength" | "none";
   side: "home" | "draw" | "away" | null;
   confidence: "alta" | "media" | "baja";
   reasoning: string;
+  strength_reasons?: string[];
 }
 
 interface ProbAdjustment {
@@ -67,9 +68,9 @@ const CONFIDENCE_COLOR: Record<string, string> = {
 };
 
 const SIGNAL_CONFIG = {
-  value: { label: "Oportunidad detectada", color: "var(--green)", bg: "#f0fdf4", border: "var(--green)" },
-  favorite: { label: "Favorito con valor", color: "var(--amber)", bg: "#fffbeb", border: "var(--amber)" },
-  none: { label: "Sin señal clara", color: "var(--muted)", bg: "var(--surface)", border: "var(--border)" },
+  value:    { label: "⚡ Edge de mercado",    color: "var(--green)", bg: "#f0fdf4", border: "var(--green)" },
+  strength: { label: "💪 Apuesta de fuerza", color: "#7c3aed",      bg: "#f5f3ff", border: "#a78bfa" },
+  none:     { label: "Sin señal clara",       color: "var(--muted)", bg: "var(--surface)", border: "var(--border)" },
 };
 
 function TopPlayerCard({ player }: { player: TopPlayer }) {
@@ -246,6 +247,21 @@ export default function AnalysisPanel({
         {signal && signal.type === "none" && (
           <div style={{ padding: "8px 12px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8 }}>
             <span className="mono" style={{ fontSize: 10, color: "var(--muted)" }}>— Sin señal clara · {signal.reasoning}</span>
+          </div>
+        )}
+
+        {/* ── Razones de fuerza (solo para strength) ── */}
+        {signal && signal.type === "strength" && signal.strength_reasons && signal.strength_reasons.length > 0 && (
+          <div>
+            <p className="mono" style={{ fontSize: 9, color: "#7c3aed", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>
+              Razones de la ventaja
+            </p>
+            {signal.strength_reasons.map((r, i) => (
+              <div key={i} style={{ fontSize: 11, color: "var(--text)", lineHeight: 1.65, display: "flex", gap: 8, marginBottom: 3 }}>
+                <span style={{ color: "#a78bfa", flexShrink: 0, fontWeight: 700 }}>✓</span>
+                <span>{r}</span>
+              </div>
+            ))}
           </div>
         )}
 

@@ -121,10 +121,33 @@ Reglas de análisis:
   Evalúa la diferencia real de calidad entre los dos XIs titular a titular.
 - Para los top 3 jugadores: los más impactantes en ESTE partido específico, no los más famosos en general.
 - El ajuste de probabilidades debe ser conservador (máximo ±10pp) y justificado con evidencia concreta.
-- La señal de apuesta combina edge matemático + calidad del XI + contexto táctico/motivacional.
 - Responde ÚNICAMENTE con el JSON solicitado, sin texto adicional.
 
-REGLA CRÍTICA — CONVOCATORIA Y FORMA RECIENTE:
+━━━ TIPOS DE SEÑAL — elige UNA, son mutuamente excluyentes ━━━
+
+"value" — EDGE DE MERCADO (ineficiencia):
+  El mercado está equivocado en la probabilidad de este resultado.
+  Requisitos: (1) el modelo da una prob significativamente distinta al mercado, Y (2) el contexto
+  real lo confirma — una baja clave no priced, XI superior no reflejado, mercado poco activo.
+  NO usar si el modelo se equivoca (ej: modelo entrena con CONMEBOL y el rival es Francia con top XI).
+  Razonamiento: explica POR QUÉ el mercado está equivocado, no solo que los números difieren.
+
+"strength" — APUESTA DE FUERZA (convicción cualitativa):
+  Un equipo tiene superioridad cualitativa clara y comprobable, independientemente de si el
+  mercado ya lo refleja o no. No es sobre ineficiencia — es sobre certeza de dominancia.
+  Usar cuando: XI claramente superior jugador por jugador, rival con bajas masivas, diferencia
+  de nivel objetiva, motivación asimétrica. INCLUSO si el mercado ya da al favorito al 60%+,
+  si los fundamentos justifican alta probabilidad de victoria, es señal "strength".
+  OBLIGATORIO incluir "strength_reasons": 3-5 razones concretas y verificables.
+  Ejemplo: ["Mbappé + Dembélé + Olise titulares vs línea defensiva colombiana inferior",
+            "Colombia rota 6 titulares en amistoso de preparación",
+            "Francia invicta en 12 partidos en casa con este XI"]
+
+"none" — SIN SEÑAL:
+  Ni hay ineficiencia real de mercado ni hay dominancia cualitativa clara.
+  Partido equilibrado, contexto incierto, o señales contradictorias.
+
+━━━ REGLA CRÍTICA — CONVOCATORIA Y FORMA RECIENTE ━━━
 - Los jugadores en "top_players_home/away" DEBEN estar confirmados en la convocatoria de ESTE parón.
   Si los resultados de búsqueda de "convocados {mes}" NO confirman que un jugador estrella fue
   convocado, NO lo pongas como jugador clave. Usa solo jugadores que los resultados web confirman.
@@ -233,10 +256,11 @@ Analiza este partido como un apostador profesional. Devuelve ÚNICAMENTE este JS
     "reasoning": "Por qué ajustas (o no) las probabilidades del modelo. Si no hay evidencia clara, deja todo en 0.00"
   }},
   "bet_signal": {{
-    "type": "value|favorite|none",
+    "type": "value|strength|none",
     "side": "home|draw|away|null",
     "confidence": "alta|media|baja",
-    "reasoning": "2-3 frases accionables. REGLA: si hay XI confirmado, DEBES mencionar jugadores específicos por nombre (ej: 'Con Mané titular y la baja de X, el ataque senegalés...'). Evalúa la diferencia de calidad real entre los dos XIs. Combina edge matemático + calidad del XI + bajas clave."
+    "reasoning": "2-3 frases accionables. Si type=value: explica POR QUÉ el mercado se equivoca. Si type=strength: explica la dominancia concreta del equipo. SIEMPRE menciona jugadores por nombre si hay XI disponible.",
+    "strength_reasons": ["razón concreta 1", "razón concreta 2", "razón concreta 3"]
   }},
   "lineup_confirmed": {str(lineup_is_confirmed).lower()},
   "confidence": "alta|media|baja",
@@ -244,7 +268,12 @@ Analiza este partido como un apostador profesional. Devuelve ÚNICAMENTE este JS
 }}
 
 Reglas para prob_adjustment: valores entre -0.10 y +0.10. La suma home+draw+away debe ser ~0.
-Reglas para bet_signal.type: "value"=hay edge matemático confirmado por contexto real, "favorite"=apostar al favorito claro tiene buen ROI, "none"=no apostar.
+IMPORTANTE para bet_signal:
+- "value": ineficiencia de mercado real confirmada por contexto. El mercado se equivoca.
+- "strength": dominancia cualitativa clara aunque el mercado ya lo refleje. El equipo va a ganar con alta probabilidad por razones objetivas y verificables.
+- "none": ni ineficiencia real ni dominancia clara.
+- strength_reasons: OBLIGATORIO si type="strength". Lista de 3-5 hechos concretos y verificables.
+  Si type!="strength", devuelve strength_reasons como lista vacía [].
 Si los resultados de búsqueda están vacíos o son escasos: analiza igualmente usando tu conocimiento
 experto sobre estas selecciones. Contexto que DEBES conocer y usar: torneos recientes (AFCON 2023/2024,
 Copa América 2024, eliminatorias mundialistas), estilo del entrenador de cada selección, jugadores
