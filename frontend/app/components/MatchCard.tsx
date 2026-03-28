@@ -44,6 +44,7 @@ interface LineupData {
   away_subs: Player[];
   home_missing: MissingPlayer[];
   away_missing: MissingPlayer[];
+  lineup_confirmed?: boolean;
 }
 
 interface Match {
@@ -198,11 +199,13 @@ function SquadPanel({ match, hasConfirmedLineup }: { match: Match; hasConfirmedL
 function LineupFetchButton({
   matchId,
   kickoff,
+  hasProbableLineup,
   onLineupFetched,
   onAnalysisReady,
 }: {
   matchId: string;
   kickoff: string;
+  hasProbableLineup: boolean;
   onLineupFetched: (lineup: LineupData) => void;
   onAnalysisReady: (analysis: AnalysisData) => void;
 }) {
@@ -296,7 +299,8 @@ function LineupFetchButton({
           opacity: loading ? 0.6 : 1,
         }}
       >
-        {loading ? "⏳" : "📋"} {loading ? "Buscando…" : "Ver Alineación"}
+        {loading ? "⏳" : "📋"}{" "}
+        {loading ? "Buscando…" : hasProbableLineup ? "Actualizar XI oficial" : "Ver Alineación"}
         {!loading && !isClose && (
           <span style={{ color: "var(--muted)", fontSize: 9 }}>({Math.round(minsToKickoff / 60)}h)</span>
         )}
@@ -328,9 +332,12 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
   const badgeColor = isHigh ? "var(--green)" : "var(--amber)";
   const deltaSign = match.best_delta_pp !== null && match.best_delta_pp >= 0 ? "+" : "";
 
-  const hasConfirmedLineup = !!(lineup?.home_starters?.length);
+  const hasStarters = !!(lineup?.home_starters?.length);
+  const isLineupConfirmed = !!(lineup?.lineup_confirmed);
+  const hasConfirmedLineup = hasStarters && isLineupConfirmed;
   const minsToKickoff = minutesToKickoff(match.kickoff);
-  const showLineupButton = !hasConfirmedLineup && minsToKickoff > -120 && !isOver;
+  // Show fetch button if: no lineup yet, OR lineup is only probable (not officially confirmed)
+  const showLineupButton = !isOver && minsToKickoff > -120 && (!hasStarters || !isLineupConfirmed);
 
   return (
     <article
@@ -464,12 +471,13 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
         ))}
       </div>
 
-      {/* Lineup fetch button — shown when no confirmed lineup */}
+      {/* Lineup fetch button — shown when no lineup or lineup is only probable */}
       {showLineupButton && (
         <div style={{ padding: "0 16px 12px", borderTop: "1px solid var(--border)", paddingTop: 10 }}>
           <LineupFetchButton
             matchId={match.id}
             kickoff={match.kickoff}
+            hasProbableLineup={hasStarters && !isLineupConfirmed}
             onLineupFetched={setLineup}
             onAnalysisReady={setAnalysis}
           />
