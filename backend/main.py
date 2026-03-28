@@ -70,8 +70,10 @@ def _refresh_job():
         db.commit()
 
 
-# Daily: 06:00 UTC — fetch fixtures and run model
-scheduler.add_job(_daily_job, "cron", hour=6, minute=0, id="daily_pipeline")
+# Daily pipeline runs twice: 06:00 UTC (morning) + 14:00 UTC (afternoon)
+# Polymarket publishes new markets throughout the day, second run catches late additions
+scheduler.add_job(_daily_job, "cron", hour=6,  minute=0, id="daily_pipeline_morning")
+scheduler.add_job(_daily_job, "cron", hour=14, minute=0, id="daily_pipeline_afternoon")
 
 # Every 15 min 08:00–22:00 UTC on all days — refresh Polymarket odds
 scheduler.add_job(
