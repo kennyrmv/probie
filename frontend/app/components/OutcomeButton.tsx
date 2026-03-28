@@ -34,17 +34,19 @@ function outcomeLabel(outcome: string): string {
 }
 
 export default function OutcomeButton({ o, usePrior }: { o: Outcome; usePrior: boolean }) {
-  const isHigh = o.value_tier === "high";
-  const isMid = o.value_tier === "mid";
-  const isValue = isHigh || isMid;
-  const hasUrl = !!o.polymarket_url;
-  const color = tierColor(o.value_tier);
   const hasAiAdj = o.ai_model_prob !== null && o.ai_model_prob !== undefined;
 
-  // AI-adjusted delta tier
-  const aiIsHigh = hasAiAdj && o.ai_delta_pp !== null && o.ai_delta_pp >= 10;
-  const aiIsMid = hasAiAdj && o.ai_delta_pp !== null && o.ai_delta_pp >= 5 && !aiIsHigh;
-  const aiColor = aiIsHigh ? "var(--green)" : aiIsMid ? "var(--amber)" : "var(--muted)";
+  // Best estimate: IA if available, else model
+  const ourProb = hasAiAdj ? o.ai_model_prob! : o.model_prob;
+  const bestDelta = hasAiAdj && o.ai_delta_pp !== null ? o.ai_delta_pp : o.delta_pp;
+
+  // Value tier based on best available delta
+  const isHigh = bestDelta !== null && bestDelta >= 10;
+  const isMid  = bestDelta !== null && bestDelta >= 5 && !isHigh;
+  const isValue = isHigh || isMid;
+
+  const color = isHigh ? "var(--green)" : isMid ? "var(--amber)" : "var(--text)";
+  const hasUrl = !!o.polymarket_url;
 
   const [hovered, setHovered] = useState(false);
 
@@ -56,11 +58,7 @@ export default function OutcomeButton({ o, usePrior }: { o: Outcome; usePrior: b
     ? "#c8c8c4"
     : "var(--border)";
 
-  const bgColor = isHigh
-    ? "#f0fdf4"
-    : isMid
-    ? "#fffbeb"
-    : "var(--surface)";
+  const bgColor = isHigh ? "#f0fdf4" : isMid ? "#fffbeb" : "var(--surface)";
 
   const inner = (
     <div
@@ -103,47 +101,27 @@ export default function OutcomeButton({ o, usePrior }: { o: Outcome; usePrior: b
         {o.label}
       </div>
 
-      {/* Probabilities */}
+      {/* Two numbers: our estimate vs market */}
       <div className="mono" style={{ fontSize: 11, display: "flex", flexDirection: "column", gap: 2 }}>
         <div style={{ color: "var(--muted)" }}>
-          <span>Mdo&nbsp;&nbsp;</span>
-          <span style={{ color: "var(--text)" }}>
-            {o.polymarket_prob !== null ? `${(o.polymarket_prob * 100).toFixed(1)}%` : "—"}
+          <span>Nosotros&nbsp;</span>
+          <span style={{ color: isValue ? color : usePrior && !hasAiAdj ? "var(--muted)" : "var(--text)", fontWeight: isValue ? 600 : 400 }}>
+            {(ourProb * 100).toFixed(0)}%
           </span>
+          {hasAiAdj && <span style={{ fontSize: 8, color: "var(--muted)", marginLeft: 3 }}>IA</span>}
         </div>
         <div style={{ color: "var(--muted)" }}>
-          <span>Mod&nbsp;&nbsp;</span>
-          <span style={{ color: usePrior ? "var(--muted)" : "var(--text)" }}>
-            {(o.model_prob * 100).toFixed(1)}%
+          <span>Mdo&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+          <span style={{ color: "var(--text)" }}>
+            {o.polymarket_prob !== null ? `${(o.polymarket_prob * 100).toFixed(0)}%` : "—"}
           </span>
         </div>
-        {/* AI-adjusted probability row */}
-        {hasAiAdj && (
-          <div style={{ color: "var(--muted)" }}>
-            <span>IA&nbsp;&nbsp;&nbsp;&nbsp;</span>
-            <span style={{ color: aiColor, fontWeight: 500 }}>
-              {(o.ai_model_prob! * 100).toFixed(1)}%
-            </span>
-            {o.ai_delta_pp !== null && Math.abs(o.ai_delta_pp) >= 1 && (
-              <span style={{ color: aiColor, fontSize: 9, marginLeft: 4 }}>
-                ({o.ai_delta_pp > 0 ? "+" : ""}{o.ai_delta_pp.toFixed(1)}pp)
-              </span>
-            )}
-          </div>
-        )}
       </div>
 
-      {/* Delta badge (model vs market) */}
-      {o.delta_pp !== null && isValue && (
-        <div className="mono" style={{ marginTop: 7, fontSize: 10, color: color, fontWeight: 500 }}>
-          {deltaLabel(o.value_tier, o.delta_pp)}
-        </div>
-      )}
-
-      {/* AI delta badge when AI adjustment pushes into value zone */}
-      {hasAiAdj && (aiIsHigh || aiIsMid) && !isValue && o.ai_delta_pp !== null && (
-        <div className="mono" style={{ marginTop: 7, fontSize: 10, color: aiColor, fontWeight: 500 }}>
-          {o.ai_delta_pp > 0 ? "+" : ""}{o.ai_delta_pp.toFixed(1)}pp IA {aiIsHigh ? "▲ HIGH" : "▲ MID"}
+      {/* Edge badge */}
+      {bestDelta !== null && isValue && (
+        <div className="mono" style={{ marginTop: 7, fontSize: 10, color, fontWeight: 500 }}>
+          {bestDelta >= 0 ? "+" : ""}{bestDelta.toFixed(1)}pp {isHigh ? "▲ HIGH" : "▲ MID"}
         </div>
       )}
     </div>
