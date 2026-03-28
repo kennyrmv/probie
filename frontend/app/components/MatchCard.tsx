@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import OutcomeButton from "./OutcomeButton";
 import AnalysisPanel from "./AnalysisPanel";
+import TeamFlag from "./TeamFlag";
 import type { AnalysisData } from "./AnalysisPanel";
 
 interface Outcome {
@@ -350,71 +351,86 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
       }}
     >
       {/* Card header */}
-      <div style={{ padding: "14px 16px 10px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-          {/* Left: teams + competition */}
-          <div style={{ minWidth: 0 }}>
-            <h2 style={{
-              fontSize: 15,
+      <div style={{ padding: "12px 16px 10px" }}>
+        {/* Teams row with flags */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+          {/* Home team */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+            <TeamFlag team={match.home_team} size={26} />
+            <span style={{
+              fontSize: 14,
               fontWeight: 600,
               color: "var(--text)",
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
-              lineHeight: 1.3,
             }}>
               {match.home_team}
-              <span style={{ color: "var(--muted)", margin: "0 7px", fontWeight: 400 }}>vs</span>
-              {match.away_team}
-            </h2>
-            <span style={{
-              fontSize: 9,
-              textTransform: "uppercase",
-              letterSpacing: "0.1em",
-              color: "var(--muted)",
-              display: "inline-block",
-              marginTop: 3,
-            }}>
-              {match.competition}
             </span>
           </div>
 
-          {/* Right: kickoff + badges */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, marginTop: 2 }}>
-            {/* Live / Finished badge */}
+          {/* Center: vs / score / live */}
+          <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
             {isLive && (
               <span className="mono" style={{
-                fontSize: 9,
+                fontSize: 8,
                 background: "#fef2f2",
                 color: "#dc2626",
-                padding: "2px 6px",
-                borderRadius: 4,
-                fontWeight: 600,
-                letterSpacing: "0.05em",
-              }}>● EN VIVO</span>
+                padding: "1px 5px",
+                borderRadius: 3,
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+              }}>● LIVE</span>
             )}
-            {isFinished && (
+            {isFinished ? (
               <span className="mono" style={{
-                fontSize: 9,
-                background: "var(--border)",
+                fontSize: 13,
+                fontWeight: 700,
                 color: "var(--muted)",
-                padding: "2px 6px",
-                borderRadius: 4,
-                fontWeight: 500,
+                letterSpacing: "0.05em",
               }}>
                 {match.home_score !== null && match.away_score !== null
-                  ? `${match.home_score}-${match.away_score}`
+                  ? `${match.home_score} – ${match.away_score}`
                   : "FIN"}
               </span>
+            ) : (
+              <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 400 }}>vs</span>
             )}
+          </div>
+
+          {/* Away team */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1, justifyContent: "flex-end" }}>
+            <span style={{
+              fontSize: 14,
+              fontWeight: 600,
+              color: "var(--text)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              textAlign: "right",
+            }}>
+              {match.away_team}
+            </span>
+            <TeamFlag team={match.away_team} size={26} />
+          </div>
+        </div>
+
+        {/* Competition + kickoff row */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{
+            fontSize: 9,
+            textTransform: "uppercase",
+            letterSpacing: "0.1em",
+            color: "var(--muted)",
+            fontFamily: "var(--mono)",
+          }}>
+            {match.competition}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             {!isOver && hasConfirmedLineup && (
               <span className="mono" style={{
-                fontSize: 9,
-                background: "#f0fdf4",
-                color: "var(--green)",
-                padding: "2px 5px",
-                borderRadius: 4,
-                fontWeight: 500,
+                fontSize: 9, background: "#f0fdf4", color: "var(--green)",
+                padding: "2px 5px", borderRadius: 4, fontWeight: 500,
               }}>XI</span>
             )}
             {!isOver && match.analysis_data?.bet_signal && match.analysis_data.bet_signal.type !== "none" && (
@@ -422,32 +438,26 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                 fontSize: 9,
                 background: match.analysis_data.bet_signal.type === "value" ? "#f0fdf4" : "#fffbeb",
                 color: match.analysis_data.bet_signal.type === "value" ? "var(--green)" : "var(--amber)",
-                padding: "2px 5px",
-                borderRadius: 4,
-                fontWeight: 500,
+                padding: "2px 5px", borderRadius: 4, fontWeight: 500,
               }}>
                 {match.analysis_data.bet_signal.type === "value" ? "⚡ EDGE" : "✓ FAV"}
               </span>
             )}
-            <span className="mono" style={{ fontSize: 11, color: isOver ? "var(--muted)" : "var(--muted)" }}>
+            {showValueBadge && (
+              <span className="mono" style={{ fontSize: 10, color: badgeColor, fontWeight: 500 }}>
+                {deltaSign}{match.best_delta_pp!.toFixed(1)}pp
+              </span>
+            )}
+            <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
               {formatKickoff(match.kickoff)}
             </span>
           </div>
         </div>
 
-        {/* Value badge */}
-        {showValueBadge && (
-          <div style={{ marginTop: 6 }}>
-            <span className="mono" style={{ fontSize: 10, color: badgeColor, fontWeight: 500 }}>
-              ▲ {deltaSign}{match.best_delta_pp!.toFixed(1)}pp
-            </span>
-          </div>
-        )}
-
-        {/* Prior warning — hide when IA has already adjusted the priors */}
+        {/* Prior warning */}
         {prior && !analysis && (
-          <div style={{ marginTop: 6 }}>
-            <span style={{ fontSize: 11, color: "var(--amber)" }}>⚠ Usando priors de liga</span>
+          <div style={{ marginTop: 5 }}>
+            <span style={{ fontSize: 10, color: "var(--amber)", fontFamily: "var(--mono)" }}>⚠ Usando priors de liga</span>
           </div>
         )}
       </div>
