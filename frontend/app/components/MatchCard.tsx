@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import OutcomeButton from "./OutcomeButton";
 import AnalysisPanel from "./AnalysisPanel";
 import TeamFlag from "./TeamFlag";
+import { useTimezone, formatInTz } from "../context/TimezoneContext";
 import type { AnalysisData } from "./AnalysisPanel";
 
 interface Outcome {
@@ -72,14 +73,7 @@ function posAbbr(pos: string): string {
   return pos;
 }
 
-function formatKickoff(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + " UTC";
-  } catch {
-    return iso;
-  }
-}
+// formatKickoff now comes from TimezoneContext (formatInTz)
 
 function minutesToKickoff(iso: string): number {
   return (new Date(iso).getTime() - Date.now()) / 60000;
@@ -317,6 +311,7 @@ function LineupFetchButton({
 // ─── Main card ────────────────────────────────────────────────────────────
 
 export default function MatchCard({ match, delay }: { match: Match; delay: number }) {
+  const { tz } = useTimezone();
   const [lineup, setLineup] = useState<LineupData | null>(match.lineup_data);
   const [analysis, setAnalysis] = useState<AnalysisData | null>(match.analysis_data);
 
@@ -449,7 +444,7 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
               </span>
             )}
             <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
-              {formatKickoff(match.kickoff)}
+              {formatInTz(match.kickoff, tz)}
             </span>
           </div>
         </div>

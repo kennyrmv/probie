@@ -1,23 +1,35 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useTimezone, TIMEZONES } from "../context/TimezoneContext";
 
 export default function Header({ lastUpdated }: { lastUpdated: Date | null }) {
+  const { tz, setTz } = useTimezone();
   const [time, setTime] = useState("");
   const [lineupError, setLineupError] = useState(false);
 
-  // UTC clock — ticks every second
+  // Clock — ticks every second in selected timezone
   useEffect(() => {
     const tick = () => {
       const now = new Date();
-      setTime(now.toUTCString().slice(17, 25) + " UTC");
+      const timeStr = now.toLocaleTimeString("es", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        timeZone: tz,
+      });
+      const tzShort = now.toLocaleTimeString("es", {
+        timeZone: tz,
+        timeZoneName: "short",
+      }).split(" ").pop() ?? tz;
+      setTime(`${timeStr} ${tzShort}`);
     };
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [lastUpdated]);
+  }, [tz, lastUpdated]);
 
-  // Poll /health every 5 min to detect lineup API issues
+  // Poll /health every 5 min
   useEffect(() => {
     const checkHealth = async () => {
       try {
@@ -38,16 +50,14 @@ export default function Header({ lastUpdated }: { lastUpdated: Date | null }) {
     <>
       {/* Lineup API error banner */}
       {lineupError && (
-        <div
-          style={{
-            background: "#fffbeb",
-            borderBottom: "1px solid #fde68a",
-            padding: "8px 24px",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
+        <div style={{
+          background: "#fffbeb",
+          borderBottom: "1px solid #fde68a",
+          padding: "8px 24px",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}>
           <span style={{ fontSize: 13 }}>⚠️</span>
           <span className="mono" style={{ fontSize: 11, color: "var(--amber)" }}>
             Backend no disponible
@@ -55,16 +65,14 @@ export default function Header({ lastUpdated }: { lastUpdated: Date | null }) {
         </div>
       )}
 
-      <header
-        style={{
-          background: "var(--surface)",
-          borderBottom: "1px solid var(--border)",
-          padding: "16px 24px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
+      <header style={{
+        background: "var(--surface)",
+        borderBottom: "1px solid var(--border)",
+        padding: "16px 24px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+      }}>
         {/* Left: brand + subtitle */}
         <div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
@@ -78,27 +86,53 @@ export default function Header({ lastUpdated }: { lastUpdated: Date | null }) {
           </p>
         </div>
 
-        {/* Right: bankroll link + clock + live dot */}
+        {/* Right: tz selector + bankroll link + clock + live dot */}
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Link href="/bankroll" style={{ fontSize: 11, color: "var(--muted)", textDecoration: "none", fontFamily: "var(--mono)" }}>
+          {/* Timezone selector */}
+          <select
+            value={tz}
+            onChange={e => setTz(e.target.value)}
+            className="mono"
+            style={{
+              fontSize: 11,
+              color: "var(--muted)",
+              background: "transparent",
+              border: "1px solid var(--border)",
+              borderRadius: 5,
+              padding: "2px 6px",
+              cursor: "pointer",
+              outline: "none",
+              maxWidth: 130,
+            }}
+          >
+            {/* If current tz not in the list (auto-detected unknown), show it first */}
+            {!TIMEZONES.find(t => t.value === tz) && (
+              <option value={tz}>{tz}</option>
+            )}
+            {TIMEZONES.map(t => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+
+          <Link
+            href="/bankroll"
+            style={{ fontSize: 11, color: "var(--muted)", textDecoration: "none", fontFamily: "var(--mono)" }}
+          >
             Bankroll →
           </Link>
-          <span
-            className="mono"
-            style={{ fontSize: 12, color: "var(--muted)" }}
-          >
+
+          <span className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>
             {time}
           </span>
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: "var(--green)",
-              display: "inline-block",
-              flexShrink: 0,
-            }}
-          />
+
+          <span style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "var(--green)",
+            display: "inline-block",
+            flexShrink: 0,
+          }} />
         </div>
       </header>
     </>
