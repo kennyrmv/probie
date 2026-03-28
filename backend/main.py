@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timezone
 
 # Load .env before anything else so all env vars are available
 from dotenv import load_dotenv
@@ -18,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.routes import router
 from database import SessionLocal, check_db_connection
 from pipeline.pipeline import run_daily_pipeline, run_refresh_pipeline, seed_historical_data
+from api.routes import _run_analysis_and_store
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,6 +72,62 @@ def _refresh_job():
         db.commit()
 
 
+def _auto_lineup_job():
+    """
+    Auto-fetch confirmed lineups for matches kicking off in the next 35 minutes.
+    Runs every 5 minutes. Triggers re-analysis if a confirmed XI is found.
+    API-Football publishes lineups ~60min before kickoff.
+    """
+    from datetime import timedelta
+    from models import Match
+    from resolver.claude_lineup import fetch_lineup_for_match
+
+    now = datetime.now(timezone.utc)
+    window_start = now + timedelta(minutes=0)    # already started (live)
+    window_end   = now + timedelta(minutes=35)   # up to 35 min from now
+
+    with SessionLocal() as db:
+        upcoming = (
+            db.query(Match)
+            .filter(
+                Match.kickoff_utc >= window_start,
+                Match.kickoff_utc <= window_end,
+            )
+            .all()
+        )
+        for match in upcoming:
+            existing = match.lineup_data or {}
+            if existing.get("lineup_confirmed"):
+                continue  # already confirmed, skip
+
+            logger.info(
+                "Auto-lineup: fetching for %s vs %s (kickoff in %d min)",
+                match.home_team, match.away_team,
+                int((match.kickoff_utc - now).total_seconds() / 60),
+            )
+            try:
+                lineup = fetch_lineup_for_match(
+                    home_team=match.home_team,
+                    away_team=match.away_team,
+                    kickoff_dt=match.kickoff_utc,
+                )
+                if lineup:
+                    match.lineup_data = lineup
+                    db.commit()
+                    logger.info(
+                        "Auto-lineup: confirmed XI stored for %s vs %s",
+                        match.home_team, match.away_team,
+                    )
+                    # Trigger re-analysis with confirmed lineup
+                    if lineup.get("lineup_confirmed"):
+                        _run_analysis_and_store(str(match.id))
+            except Exception as exc:
+                logger.warning(
+                    "Auto-lineup: failed for %s vs %s: %s",
+                    match.home_team, match.away_team, exc,
+                )
+
+
 # Daily pipeline runs twice: 06:00 UTC (morning) + 14:00 UTC (afternoon)
 # Polymarket publishes new markets throughout the day, second run catches late additions
 scheduler.add_job(_daily_job, "cron", hour=6,  minute=0, id="daily_pipeline_morning")
@@ -82,6 +140,15 @@ scheduler.add_job(
     hour="8-22",
     minute="*/15",
     id="refresh_pipeline",
+)
+
+# Every 5 min — auto-fetch confirmed lineups for matches kicking off in ≤35 min
+# API-Football publishes lineups ~60min before kickoff, this catches them automatically
+scheduler.add_job(
+    _auto_lineup_job,
+    "cron",
+    minute="*/5",
+    id="auto_lineup",
 )
 
 
