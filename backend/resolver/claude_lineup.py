@@ -66,9 +66,8 @@ def _gather_lineup_results(home_team: str, away_team: str, kickoff_dt: datetime)
 
 
 SYSTEM_PROMPT = """You are a football lineup extraction specialist.
-Extract confirmed starting XI and formation from web search results.
+Extract starting XI and formation from web search results.
 Respond ONLY with the requested JSON. No extra text.
-If the lineup is not yet confirmed in the sources, return {"confirmed": false}.
 Player names should be in their most common English/international form."""
 
 
@@ -91,31 +90,28 @@ Kickoff: {kickoff_str}
 WEB SEARCH RESULTS:
 {raw_results}
 
-Extract the confirmed starting lineup for this match. Return ONLY this JSON:
+Extract the starting lineup for this match. Return ONLY this JSON:
 {{
-  "confirmed": true,
+  "confirmed": false,
   "home_formation": "4-3-3",
   "away_formation": "4-2-3-1",
   "home_starters": [
-    {{"name": "Player Name", "position": "GK|DEF|MID|FWD", "jersey": "1"}}
+    {{"name": "Player Name", "position": "GK|DEF|MID|FWD", "jersey": ""}}
   ],
-  "home_subs": [
-    {{"name": "Player Name", "position": "GK|DEF|MID|FWD", "jersey": "12"}}
-  ],
+  "home_subs": [],
   "away_starters": [
-    {{"name": "Player Name", "position": "GK|DEF|MID|FWD", "jersey": "1"}}
+    {{"name": "Player Name", "position": "GK|DEF|MID|FWD", "jersey": ""}}
   ],
-  "away_subs": [
-    {{"name": "Player Name", "position": "GK|DEF|MID|FWD", "jersey": "12"}}
-  ],
+  "away_subs": [],
   "home_missing": [{{"name": "Player Name", "reason": "injury/suspension"}}],
   "away_missing": [{{"name": "Player Name", "reason": "injury/suspension"}}]
 }}
 
 Rules:
-- Only include players if lineup is explicitly confirmed (not "predicted" or "expected")
-- If not confirmed, return {{"confirmed": false}}
-- jersey field can be empty string if unknown
+- Set "confirmed": true only if the source explicitly says these are the official/confirmed lineup
+- Set "confirmed": false if these are predicted/expected/probable lineups — still include them
+- If there is truly no lineup info at all (no names mentioned), return {{"confirmed": false, "home_starters": [], "away_starters": []}}
+- jersey field can be empty string
 - home_subs and away_subs can be []"""
 
     response = client.messages.create(
@@ -132,10 +128,8 @@ Rules:
         return None
 
     data = json.loads(json_match.group())
-    if not data.get("confirmed"):
-        return None
 
-    # Validate we actually got starters
+    # Only return None if there are truly no player names
     if not data.get("home_starters") or not data.get("away_starters"):
         return None
 
@@ -175,9 +169,11 @@ def fetch_lineup_for_match(
         len(data.get("away_starters", [])),
     )
 
+    confirmed = data.get("confirmed", False)
     return {
         "source": "claude+duckduckgo",
         "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "lineup_confirmed": confirmed,
         "home_formation": data.get("home_formation", ""),
         "away_formation": data.get("away_formation", ""),
         "home_starters": data.get("home_starters", []),
