@@ -67,9 +67,10 @@ def _gather_lineup_results(home_team: str, away_team: str, kickoff_dt: datetime)
     date_str = kickoff_dt.strftime("%Y-%m-%d")
     # Prioritize queries that find official/confirmed lineups published today
     queries = [
-        f"{home_team} {away_team} official lineup confirmed starting XI today",
-        f"{home_team} vs {away_team} lineups {date_str} site:sofascore.com OR site:flashscore.com OR site:bbc.com OR site:espn.com",
-        f"{home_team} vs {away_team} confirmed starting XI {date_str}",
+        f"{home_team} {away_team} alineacion confirmada once inicial {date_str} site:infobae.com OR site:espn.com.ar OR site:espndeportes.espn.com",
+        f"{home_team} {away_team} alineacion titular confirmada hoy",
+        f"{home_team} vs {away_team} confirmed lineup starting XI {date_str} site:sofascore.com OR site:flashscore.com OR site:bbc.com OR site:espn.com",
+        f"{home_team} vs {away_team} official starting XI {date_str}",
     ]
 
     all_results: list[str] = []
@@ -87,7 +88,8 @@ def _gather_lineup_results(home_team: str, away_team: str, kickoff_dt: datetime)
             # Fetch full page for lineup-specific URLs
             url = r.get("url", "")
             if url and url not in fetched_urls and any(k in url for k in [
-                "lineup", "starting-xi", "starting_xi", "lineups", "sofascore", "flashscore"
+                "lineup", "alineacion", "starting-xi", "starting_xi", "lineups",
+                "sofascore", "flashscore", "infobae", "espn"
             ]):
                 page_text = _fetch_page(url)
                 if page_text:
