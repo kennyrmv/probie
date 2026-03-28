@@ -169,7 +169,11 @@ function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
           )}
         </div>
       )}
-      <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5 }}>
+      <div style={{
+        fontSize: 11, color: "var(--muted)", lineHeight: 1.5,
+        display: "-webkit-box", WebkitLineClamp: 3,
+        WebkitBoxOrient: "vertical", overflow: "hidden",
+      }}>
         {card.reasoning}
       </div>
       <div className="mono" style={{ fontSize: 10, color: "var(--text)", marginTop: 4 }}>
