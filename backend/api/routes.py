@@ -88,14 +88,13 @@ def get_matches_today(background_tasks: BackgroundTasks, db: Session = Depends(g
             match_data = _build_match_response(db, match)
             if match_data:
                 result.append(match_data)
-            # Auto re-analysis: XI confirmed but analysis predates it
+            # Auto re-analysis: XI available but analysis was done without lineup
             lineup = match.lineup_data or {}
-            if lineup.get("lineup_confirmed") and (
-                not match.analysis_data
-                or not match.analysis_data.get("lineup_confirmed")
-            ):
+            has_starters = bool(lineup.get("home_starters"))
+            analysis_has_lineup = bool(match.analysis_data and match.analysis_data.get("lineup_data_used"))
+            if has_starters and not analysis_has_lineup:
                 background_tasks.add_task(_run_analysis_and_store, str(match.id))
-                logger.info("Queued re-analysis for %s vs %s (stale analysis)", match.home_team, match.away_team)
+                logger.info("Queued re-analysis for %s vs %s (lineup available, analysis stale)", match.home_team, match.away_team)
 
         # Sort by best_delta_pp descending
         result.sort(key=lambda x: x["best_delta_pp"] or 0, reverse=True)

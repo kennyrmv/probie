@@ -282,6 +282,8 @@ def analyze_match(
     # Authoritative: override Claude's lineup_confirmed with what we actually passed in
     if lineup_data:
         analysis["lineup_confirmed"] = bool(lineup_data.get("lineup_confirmed"))
+    # Track whether lineup data was used in this analysis (independent of confirmed status)
+    analysis["lineup_data_used"] = bool(lineup_data and lineup_data.get("home_starters"))
 
     logger.info(
         "Analysis complete: confidence=%s, bet_signal=%s/%s, lineup_confirmed=%s, "
