@@ -107,6 +107,12 @@ async def startup_event():
     scheduler.start()
     logger.info("Scheduler started.")
 
+    # Run pipeline immediately on startup so matches are always fresh
+    # (covers cases where server restarts between scheduled runs)
+    import threading
+    threading.Thread(target=_daily_job, daemon=True).start()
+    logger.info("Startup pipeline triggered in background.")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
