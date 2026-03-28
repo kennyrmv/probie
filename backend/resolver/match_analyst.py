@@ -63,17 +63,26 @@ def _gather_search_results(
     """
     month_year = kickoff_dt.strftime("%B %Y")
     date_str = kickoff_dt.strftime("%Y-%m-%d")
+    year = kickoff_dt.strftime("%Y")
 
     queries = [
-        f"{home_team} vs {away_team} lineup predicted starting XI {date_str}",
-        f"{home_team} injuries suspensions missing players {month_year}",
-        f"{away_team} injuries suspensions missing players {month_year}",
-        f"{home_team} vs {away_team} {competition} preview analysis",
-        f"{home_team} {away_team} form recent results {month_year}",
-        f"{home_team} vs {away_team} head to head h2h history",
-        f"{home_team} coach tactics formation {month_year}",
-        f"{away_team} coach tactics formation {month_year}",
-        f"{home_team} vs {away_team} motivation stakes {month_year}",
+        # Match preview — most likely to have today's tactical context
+        f"{home_team} vs {away_team} preview {date_str}",
+        f"{home_team} vs {away_team} {competition} {month_year} analisis previo",
+        # Injuries/absences this window
+        f"{home_team} bajas lesiones convocatoria {month_year}",
+        f"{away_team} bajas lesiones convocatoria {month_year}",
+        # Recent form — last tournament or qualification campaign
+        f"{home_team} seleccion resultados forma reciente {year}",
+        f"{away_team} seleccion resultados forma reciente {year}",
+        # Coach and tactical system
+        f"{home_team} entrenador tactica sistema {year}",
+        f"{away_team} entrenador tactica sistema {year}",
+        # Recent tournament context (AFCON, Copa America, World Cup qualifying, etc.)
+        f"{home_team} torneo reciente {year} rendimiento",
+        f"{away_team} torneo reciente {year} rendimiento",
+        # H2H
+        f"{home_team} vs {away_team} head to head historial",
     ]
 
     all_results: list[str] = []
@@ -96,16 +105,23 @@ def _gather_search_results(
 
 
 SYSTEM_PROMPT = """Eres un analista profesional de apuestas deportivas de fútbol con 15 años de experiencia.
-Tu trabajo es sintetizar información web en análisis accionables que ayuden a tomar decisiones de apuesta.
+Tu trabajo es producir análisis accionables combinando datos web con tu conocimiento experto de fútbol internacional.
 
-Reglas:
-- Sé honesto sobre incertidumbre: si no hay info de alineación, di que no está confirmada
-- Prioriza información reciente y de fuentes oficiales (clubes, prensa deportiva)
-- Distingue entre bajas confirmadas y rumores
-- Para los top 3 jugadores: identifica quiénes son más impactantes en el partido (no solo los más famosos)
-- El ajuste de probabilidades debe ser conservador (máximo ±10pp por resultado) y basado en evidencia concreta
-- La señal de apuesta combina el edge matemático CON el contexto real
-- Responde ÚNICAMENTE con el JSON solicitado, sin texto adicional"""
+Reglas sobre fuentes:
+- Los resultados de búsqueda son tu fuente primaria. Úsalos cuando estén disponibles.
+- Si los resultados web son escasos o vacíos, USA TU CONOCIMIENTO PROPIO sobre estas selecciones:
+  rendimiento en torneos recientes (Copa Africa, Copa América, eliminatorias), estilo del entrenador,
+  jugadores clave en forma, rivalidades históricas, motivación del partido. Eres un experto — no finjas
+  ignorar lo que sabes. NUNCA digas "ausencia de datos web" como excusa para no analizar.
+- Distingue entre bajas confirmadas (di la fuente) y bajas inferidas por tu conocimiento.
+
+Reglas de análisis:
+- Si hay XI confirmado o probable: DEBES mencionar jugadores específicos por nombre en el razonamiento.
+  Evalúa la diferencia real de calidad entre los dos XIs titular a titular.
+- Para los top 3 jugadores: los más impactantes en ESTE partido específico, no los más famosos en general.
+- El ajuste de probabilidades debe ser conservador (máximo ±10pp) y justificado con evidencia concreta.
+- La señal de apuesta combina edge matemático + calidad del XI + contexto táctico/motivacional.
+- Responde ÚNICAMENTE con el JSON solicitado, sin texto adicional."""
 
 
 def _synthesize(
@@ -217,7 +233,12 @@ Analiza este partido como un apostador profesional. Devuelve ÚNICAMENTE este JS
 
 Reglas para prob_adjustment: valores entre -0.10 y +0.10. La suma home+draw+away debe ser ~0.
 Reglas para bet_signal.type: "value"=hay edge matemático confirmado por contexto real, "favorite"=apostar al favorito claro tiene buen ROI, "none"=no apostar.
-Si no hay datos confiables para un campo, usa [] o null. No inventes datos."""
+Si los resultados de búsqueda están vacíos o son escasos: analiza igualmente usando tu conocimiento
+experto sobre estas selecciones. Contexto que DEBES conocer y usar: torneos recientes (AFCON 2023/2024,
+Copa América 2024, eliminatorias mundialistas), estilo del entrenador de cada selección, jugadores
+estrella en forma, h2h histórico, nivel del campeonato doméstico de los convocados.
+Si no hay datos confiables para un campo estructurado (lesiones concretas, resultado exacto), usa [] — pero
+el razonamiento de bet_signal SIEMPRE debe ser sustancial y mencionar contexto real, nunca excusas."""
 
     response = client.messages.create(
         model=CLAUDE_MODEL,
