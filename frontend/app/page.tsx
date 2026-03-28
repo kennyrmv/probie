@@ -116,8 +116,8 @@ function pickBestBets(matches: Match[]): { value: BetCard | null; favorite: BetC
           hasAnalysis: true,
         };
       }
-    } else if (!signal || signal.type === "none") {
-      // No analysis yet: fall back to model — pick the outcome with highest delta
+    } else if (!m.analysis_data) {
+      // No analysis at all: fall back to model — pick the outcome with highest delta
       const bestOutcome = m.outcomes.reduce<Outcome | null>((best, o) => {
         const d = o.ai_delta_pp ?? o.delta_pp;
         const bd = best ? (best.ai_delta_pp ?? best.delta_pp) : null;
