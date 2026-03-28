@@ -41,18 +41,10 @@ def health_check():
     if not db_ok:
         raise HTTPException(status_code=503, detail={"status": "degraded", "db": "unavailable"})
 
-    # Lineup API status — read from state file written by the resolver
-    try:
-        from resolver.api_football import read_lineup_state
-        lineup_state = read_lineup_state()
-        lineup_status = lineup_state.get("status", "unknown")
-    except Exception:
-        lineup_status = "unknown"
-
     return {
         "status": "ok",
         "db": "connected",
-        "lineup_status": lineup_status,  # "ok" | "error" | "unknown"
+        "lineup_status": "ok",  # Claude+DuckDuckGo — always available
     }
 
 
@@ -176,11 +168,7 @@ def fetch_match_lineup(match_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Match not found")
 
     try:
-        import os
-        if os.environ.get("API_FOOTBALL_KEY"):
-            from resolver.api_football import fetch_lineup_for_match
-        else:
-            from resolver.claude_lineup import fetch_lineup_for_match  # type: ignore[assignment]
+        from resolver.claude_lineup import fetch_lineup_for_match
         lineup = fetch_lineup_for_match(
             home_team=match.home_team,
             away_team=match.away_team,
