@@ -386,7 +386,7 @@ export default function AnalysisPanel({
             {data.sources.slice(0, 5).map((s, i) => {
               if (!s || typeof s !== "string") return null;
               const domain = s.match(/https?:\/\/(?:www\.)?([^/?#]+)/)?.[1] ?? s.slice(0, 40);
-              const href = s.startsWith("http") ? s : null;
+              const href = s.startsWith("http") ? encodeURI(decodeURI(s)) : null;
               if (!href) return (
                 <span key={i} className="mono" style={{ fontSize: 9, color: "var(--muted)" }}>
                   {domain}
