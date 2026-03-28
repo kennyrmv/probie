@@ -609,7 +609,7 @@ def run_daily_pipeline(db: Session) -> int:
         return 0
 
     # 2. Polymarket-first: extract today's fixtures from Polymarket
-    pm_fixtures = fetch_today_from_polymarket(pm_events=pm_events, hours_ahead=24)
+    pm_fixtures = fetch_today_from_polymarket(pm_events=pm_events, hours_ahead=48)
 
     # 3. Also fetch football-data.org fixtures (covers PL/CL/etc with richer metadata)
     try:
