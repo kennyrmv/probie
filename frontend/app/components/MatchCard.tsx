@@ -280,30 +280,53 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
             <span className="mono" style={{ fontSize: 12, color: "var(--text)", fontWeight: 500 }}>
               {formatInTz(match.kickoff, tz)}
             </span>
-            {showEdge ? (
-              <span style={{
-                fontSize: 10,
-                fontFamily: "var(--mono)",
-                fontWeight: 700,
-                color: edgeColor,
-                background: edgeBg,
-                border: `1px solid ${edgeBorder}`,
-                borderRadius: 6,
-                padding: "2px 8px",
-                letterSpacing: "0.02em",
-              }}>
-                {isHigh ? "⚡ Alta oportunidad" : "↑ Con valor"}
-              </span>
-            ) : (
-              <span style={{
-                fontSize: 9,
-                fontFamily: "var(--mono)",
-                color: "var(--muted)",
-                opacity: 0.6,
-              }}>
-                Ver análisis →
-              </span>
-            )}
+            {(() => {
+              const aiSignal = analysis?.bet_signal?.type;
+              // IA analizó y confirmó valor → badge positivo
+              if (showEdge && (aiSignal === "value" || aiSignal === "favorite")) {
+                return (
+                  <span style={{
+                    fontSize: 10, fontFamily: "var(--mono)", fontWeight: 700,
+                    color: edgeColor, background: edgeBg,
+                    border: `1px solid ${edgeBorder}`,
+                    borderRadius: 6, padding: "2px 8px", letterSpacing: "0.02em",
+                  }}>
+                    {aiSignal === "value" ? "⚡ Confirmado" : "✓ Favorito"}
+                  </span>
+                );
+              }
+              // IA analizó y descartó → mostrar que no hay señal
+              if (showEdge && aiSignal === "none") {
+                return (
+                  <span style={{
+                    fontSize: 10, fontFamily: "var(--mono)", fontWeight: 500,
+                    color: "var(--muted)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6, padding: "2px 8px",
+                  }}>
+                    IA descarta señal
+                  </span>
+                );
+              }
+              // Modelo ve discrepancia pero sin análisis IA todavía
+              if (showEdge) {
+                return (
+                  <span style={{
+                    fontSize: 10, fontFamily: "var(--mono)", fontWeight: 600,
+                    color: edgeColor, background: edgeBg,
+                    border: `1px dashed ${edgeBorder}`,
+                    borderRadius: 6, padding: "2px 8px", letterSpacing: "0.02em",
+                  }}>
+                    {isHigh ? "⚡ Sin analizar" : "↑ Sin analizar"}
+                  </span>
+                );
+              }
+              return (
+                <span style={{ fontSize: 9, fontFamily: "var(--mono)", color: "var(--muted)", opacity: 0.6 }}>
+                  Ver análisis →
+                </span>
+              );
+            })()}
           </div>
         </div>
       </article>

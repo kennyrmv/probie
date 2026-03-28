@@ -411,11 +411,11 @@ export default function HomePage() {
 
             {highValue.length > 0 && (
               <section>
-                <p
-                  className="mono"
-                  style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10 }}
-                >
-                  Alta rentabilidad · {highValue.length} {highValue.length === 1 ? "partido" : "partidos"}
+                <p className="mono" style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
+                  Discrepancia alta con mercado · {highValue.length} {highValue.length === 1 ? "partido" : "partidos"}
+                </p>
+                <p style={{ fontSize: 10, color: "var(--muted)", marginBottom: 10, opacity: 0.7 }}>
+                  El modelo matemático detecta diferencia alta. Analiza cada partido para ver si la IA lo confirma.
                 </p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {highValue.map((m, i) => (
@@ -427,11 +427,11 @@ export default function HomePage() {
 
             {midValue.length > 0 && (
               <section>
-                <p
-                  className="mono"
-                  style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10 }}
-                >
-                  Rentabilidad media · {midValue.length} {midValue.length === 1 ? "partido" : "partidos"}
+                <p className="mono" style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
+                  Discrepancia media con mercado · {midValue.length} {midValue.length === 1 ? "partido" : "partidos"}
+                </p>
+                <p style={{ fontSize: 10, color: "var(--muted)", marginBottom: 10, opacity: 0.7 }}>
+                  El modelo detecta diferencia moderada. Analiza para confirmar.
                 </p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {midValue.map((m, i) => (
