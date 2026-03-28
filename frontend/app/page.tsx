@@ -5,6 +5,20 @@ import Header from "./components/Header";
 import MatchCard from "./components/MatchCard";
 import type { AnalysisData } from "./components/AnalysisPanel";
 
+function getKellyAmount(
+  bankroll: number,
+  p: number,
+  odds: number
+): { pct: number; amount: number } | null {
+  const b = odds - 1;
+  if (b <= 0 || p <= 0 || p >= 1) return null;
+  const q = 1 - p;
+  const f = (b * p - q) / b;
+  if (f <= 0) return null;
+  const quarterKelly = f / 4;
+  return { pct: Math.round(quarterKelly * 1000) / 10, amount: Math.round(bankroll * quarterKelly) };
+}
+
 interface Outcome {
   outcome: string;
   label: string;
@@ -47,6 +61,142 @@ interface Match {
   analysis_data: AnalysisData | null;
 }
 
+interface BetCard {
+  match: Match;
+  type: "value" | "favorite";
+  side: "home" | "draw" | "away";
+  label: string;
+  adjustedProb: number | null;
+  edgePp: number | null;
+  confidence: "alta" | "media" | "baja";
+  reasoning: string;
+}
+
+function pickBestBets(matches: Match[]): { value: BetCard | null; favorite: BetCard | null } {
+  let bestValue: BetCard | null = null;
+  let bestValueEdge = -Infinity;
+  let bestFav: BetCard | null = null;
+  let bestFavProb = -Infinity;
+
+  for (const m of matches) {
+    const signal = m.analysis_data?.bet_signal;
+    if (!signal || signal.type === "none" || !signal.side) continue;
+    const side = signal.side as "home" | "draw" | "away";
+    const outcome = m.outcomes.find(o => o.outcome === side);
+    if (!outcome) continue;
+    const adjustedProb = outcome.ai_model_prob ?? outcome.model_prob;
+    const edgePp = outcome.ai_delta_pp ?? outcome.delta_pp;
+    const card: BetCard = {
+      match: m,
+      type: signal.type,
+      side,
+      label: outcome.label,
+      adjustedProb,
+      edgePp,
+      confidence: signal.confidence,
+      reasoning: signal.reasoning,
+    };
+    if (signal.type === "value" && edgePp !== null && edgePp > bestValueEdge) {
+      bestValueEdge = edgePp;
+      bestValue = card;
+    }
+    if (signal.type === "favorite" && adjustedProb > bestFavProb) {
+      bestFavProb = adjustedProb;
+      bestFav = card;
+    }
+  }
+  return { value: bestValue, favorite: bestFav };
+}
+
+const CONF_COLOR: Record<string, string> = {
+  alta: "var(--green)",
+  media: "var(--amber)",
+  baja: "var(--muted)",
+};
+
+function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
+  const isValue = card.type === "value";
+  const accentColor = isValue ? "var(--green)" : "var(--amber)";
+  const bg = isValue ? "#f0fdf4" : "#fffbeb";
+  const kelly = card.adjustedProb ? getKellyAmount(bankroll, card.adjustedProb, 2.0) : null;
+
+  return (
+    <div style={{
+      flex: 1,
+      border: `1.5px solid ${accentColor}`,
+      borderRadius: 8,
+      padding: "12px 14px",
+      background: bg,
+      display: "flex",
+      flexDirection: "column",
+      gap: 6,
+      minWidth: 0,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span className="mono" style={{ fontSize: 9, color: accentColor, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          {isValue ? "⚡ Value Bet" : "✓ Favorito"}
+        </span>
+        <span className="mono" style={{ fontSize: 9, color: CONF_COLOR[card.confidence] }}>
+          conf: {card.confidence}
+        </span>
+      </div>
+      <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text)", lineHeight: 1.3 }}>
+        {card.label}
+      </div>
+      <div className="mono" style={{ fontSize: 10, color: "var(--muted)" }}>
+        {card.match.home_team} vs {card.match.away_team}
+      </div>
+      {card.edgePp !== null && (
+        <div className="mono" style={{ fontSize: 11, color: accentColor }}>
+          Edge: {card.edgePp > 0 ? "+" : ""}{card.edgePp.toFixed(1)}pp
+          {card.adjustedProb && (
+            <span style={{ color: "var(--muted)", marginLeft: 8 }}>
+              · Prob IA: {Math.round(card.adjustedProb * 100)}%
+            </span>
+          )}
+        </div>
+      )}
+      <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5 }}>
+        {card.reasoning}
+      </div>
+      <div className="mono" style={{ fontSize: 10, color: "var(--text)", marginTop: 4 }}>
+        {kelly
+          ? `Kelly (¼): ${kelly.pct}% · ${kelly.amount}€`
+          : <span style={{ color: "var(--muted)" }}>[Requiere análisis IA]</span>
+        }
+      </div>
+    </div>
+  );
+}
+
+function VeredictoDia({ matches, bankroll }: { matches: Match[]; bankroll: number }) {
+  const { value, favorite } = pickBestBets(matches);
+  if (!value && !favorite) return null;
+
+  return (
+    <div style={{
+      border: "1px solid var(--border)",
+      borderRadius: 10,
+      background: "var(--surface)",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+      padding: "14px 16px",
+      marginBottom: 24,
+    }}>
+      <p className="mono" style={{ fontSize: 11, color: "var(--muted)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+        Veredicto del día
+      </p>
+      {(!value && !favorite) ? (
+        <p style={{ fontSize: 13, color: "var(--muted)" }}>No hay apuestas recomendadas hoy</p>
+      ) : (
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {value && <BetCardBox card={value} bankroll={bankroll} />}
+          {favorite && <BetCardBox card={favorite} bankroll={bankroll} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SkeletonCard() {
   return (
     <div
@@ -81,6 +231,12 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [bankroll, setBankroll] = useState<number>(1000);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("bankroll_capital");
+    if (saved) setBankroll(parseFloat(saved) || 1000);
+  }, []);
 
   const fetchMatches = useCallback(async () => {
     try {
@@ -153,6 +309,8 @@ export default function HomePage() {
         {/* Match sections */}
         {!loading && matches.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+
+            <VeredictoDia matches={matches} bankroll={bankroll} />
 
             {highValue.length > 0 && (
               <section>

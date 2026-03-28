@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 export default function Header({ lastUpdated }: { lastUpdated: Date | null }) {
   const [time, setTime] = useState("");
@@ -49,7 +50,7 @@ export default function Header({ lastUpdated }: { lastUpdated: Date | null }) {
         >
           <span style={{ fontSize: 13 }}>⚠️</span>
           <span className="mono" style={{ fontSize: 11, color: "var(--amber)" }}>
-            API de alineaciones no disponible — verifica API_FOOTBALL_KEY
+            Backend no disponible
           </span>
         </div>
       )}
@@ -77,8 +78,11 @@ export default function Header({ lastUpdated }: { lastUpdated: Date | null }) {
           </p>
         </div>
 
-        {/* Right: clock + live dot */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {/* Right: bankroll link + clock + live dot */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <Link href="/bankroll" style={{ fontSize: 11, color: "var(--muted)", textDecoration: "none", fontFamily: "var(--mono)" }}>
+            Bankroll →
+          </Link>
           <span
             className="mono"
             style={{ fontSize: 12, color: "var(--muted)" }}

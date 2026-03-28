@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import OutcomeButton from "./OutcomeButton";
 import AnalysisPanel from "./AnalysisPanel";
 import type { AnalysisData } from "./AnalysisPanel";
@@ -142,7 +142,7 @@ function LineupPanel({ match, lineup }: { match: Match; lineup: LineupData }) {
 
       <div style={{ marginTop: 6 }}>
         <span className="mono" style={{ fontSize: 9, color: "var(--muted)" }}>
-          Alineación confirmada · API-Football
+          Alineación confirmada · {lineup.source === "claude+duckduckgo" ? "IA+Web" : "API-Football"}
         </span>
       </div>
     </div>
@@ -191,17 +191,54 @@ function LineupFetchButton({
   matchId,
   kickoff,
   onLineupFetched,
+  onAnalysisReady,
 }: {
   matchId: string;
   kickoff: string;
   onLineupFetched: (lineup: LineupData) => void;
+  onAnalysisReady: (analysis: AnalysisData) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [polling, setPolling] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
 
   const minsToKickoff = minutesToKickoff(kickoff);
-  const isRecent = minsToKickoff > -120; // within 2h after kickoff
   const isClose = minsToKickoff <= 90;   // within 90min of kickoff
+
+  const startPolling = () => {
+    setPolling(true);
+    setMessage("Analizando…");
+    let polls = 0;
+    pollRef.current = setInterval(async () => {
+      polls++;
+      try {
+        const res = await fetch("/api/matches/today", { cache: "no-store" });
+        const data: Match[] = await res.json();
+        const updated = data.find((m: Match) => m.id === matchId);
+        if (updated?.analysis_data) {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setPolling(false);
+          setMessage(null);
+          onAnalysisReady(updated.analysis_data);
+          return;
+        }
+      } catch {
+        // silently retry
+      }
+      if (polls >= 4) {
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        setPolling(false);
+        setMessage("Análisis no disponible aún");
+      }
+    }, 30_000);
+  };
 
   const fetchLineup = async () => {
     setLoading(true);
@@ -218,6 +255,9 @@ function LineupFetchButton({
       if (!res.ok) throw new Error(json.detail || `HTTP ${res.status}`);
       if (json.status === "ok" && json.lineup) {
         onLineupFetched(json.lineup);
+        if (json.auto_analysis_triggered) {
+          startPolling();
+        }
       } else {
         setMessage(json.message || "Alineación no disponible aún");
       }
@@ -264,6 +304,7 @@ function LineupFetchButton({
 
 export default function MatchCard({ match, delay }: { match: Match; delay: number }) {
   const [lineup, setLineup] = useState<LineupData | null>(match.lineup_data);
+  const [analysis, setAnalysis] = useState<AnalysisData | null>(match.analysis_data);
 
   const prior = usesPriors(match.outcomes);
   const isHigh = match.best_value_tier === "high";
@@ -380,6 +421,7 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
             matchId={match.id}
             kickoff={match.kickoff}
             onLineupFetched={setLineup}
+            onAnalysisReady={setAnalysis}
           />
         </div>
       )}
@@ -395,7 +437,7 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
         matchId={match.id}
         homeTeam={match.home_team}
         awayTeam={match.away_team}
-        initialData={match.analysis_data}
+        initialData={analysis}
       />
 
       {/* Reasons */}

@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -150,7 +150,7 @@ def analyze_match(match_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/api/matches/{match_id}/fetch-lineup")
-def fetch_match_lineup(match_id: str, db: Session = Depends(get_db)):
+def fetch_match_lineup(match_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Fetch confirmed lineup from API-Football for a specific match.
     Lineups are usually confirmed ~1h before kickoff.
@@ -185,7 +185,14 @@ def fetch_match_lineup(match_id: str, db: Session = Depends(get_db)):
                 len(lineup.get("home_starters", [])),
                 len(lineup.get("away_starters", [])),
             )
-            return {"status": "ok", "lineup": lineup}
+            should_analyze = (
+                not match.analysis_data
+                or lineup.get("lineup_confirmed", False)
+            )
+            if should_analyze:
+                background_tasks.add_task(_run_analysis_and_store, str(match.id))
+                return {"status": "ok", "lineup": lineup, "auto_analysis_triggered": True}
+            return {"status": "ok", "lineup": lineup, "auto_analysis_triggered": False}
         else:
             return {"status": "not_available", "lineup": None, "message": "Alineación no confirmada aún — suele publicarse ~1h antes del partido"}
 
@@ -271,6 +278,39 @@ def _build_outcomes_context(db: Session, match: Match) -> list[dict] | None:
             "value_tier": snapshot.value_tier if snapshot else None,
         })
     return result
+
+
+def _run_analysis_and_store(match_id: str) -> None:
+    """Background task: run AI analysis and persist to DB.
+    Opens a fresh DB session — safe to call from FastAPI BackgroundTasks.
+    """
+    with SessionLocal() as db:
+        try:
+            import uuid as _uuid
+            try:
+                mid = _uuid.UUID(str(match_id))
+            except ValueError:
+                logger.error("_run_analysis_and_store: invalid match_id %s", match_id)
+                return
+            match = db.query(Match).filter(Match.id == mid).first()
+            if not match:
+                logger.warning("_run_analysis_and_store: match %s not found", match_id)
+                return
+            outcomes_context = _build_outcomes_context(db, match)
+            from resolver.match_analyst import analyze_match as run_analysis
+            analysis = run_analysis(
+                home_team=match.home_team,
+                away_team=match.away_team,
+                competition=match.competition or "International Friendly",
+                kickoff_dt=match.kickoff_utc,
+                lineup_data=match.lineup_data,
+                outcomes=outcomes_context,
+            )
+            match.analysis_data = analysis
+            db.commit()
+            logger.info("Background analysis stored for match %s", match_id)
+        except Exception as exc:
+            logger.error("Background analysis failed for match %s: %s", match_id, exc)
 
 
 def _build_match_response(db: Session, match: Match) -> dict | None:

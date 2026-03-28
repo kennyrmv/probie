@@ -70,6 +70,10 @@ def _gather_search_results(
         f"{away_team} injuries suspensions missing players {month_year}",
         f"{home_team} vs {away_team} {competition} preview analysis",
         f"{home_team} {away_team} form recent results {month_year}",
+        f"{home_team} vs {away_team} head to head h2h history",
+        f"{home_team} coach tactics formation {month_year}",
+        f"{away_team} coach tactics formation {month_year}",
+        f"{home_team} vs {away_team} motivation stakes {month_year}",
     ]
 
     all_results: list[str] = []
