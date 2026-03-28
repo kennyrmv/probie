@@ -16,12 +16,14 @@ from models import Base
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/edgefut",
+    f"postgresql+psycopg://{os.environ.get('USER', 'lider')}@localhost:5432/edgefut",
 )
 
-# Railway provides DATABASE_URL starting with "postgres://" (SQLAlchemy needs "postgresql://")
+# Normalize URL scheme for psycopg3 (SQLAlchemy 2.x dialect)
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+elif DATABASE_URL.startswith("postgresql://") and "+psycopg" not in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
 engine = create_engine(
     DATABASE_URL,

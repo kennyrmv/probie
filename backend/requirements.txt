@@ -7,7 +7,7 @@ uvicorn[standard]==0.30.6
 # Database
 sqlalchemy==2.0.36
 alembic==1.14.0
-psycopg2-binary==2.9.10
+psycopg[binary]==3.2.3
 
 # HTTP client
 httpx==0.27.2
@@ -15,14 +15,23 @@ httpx==0.27.2
 # Football probability model
 penaltyblog==1.5.0
 pandas==2.2.3
-numpy==1.26.4
-scipy==1.14.1
+numpy==2.2.4
+scipy==1.15.2
 
 # Team name matching
 rapidfuzz==3.10.1
 
 # Scheduler
 apscheduler==3.10.4
+
+# SofaScore scraping (Cloudflare bypass via headless Chromium)
+# After install: playwright install chromium
+playwright==1.49.0
+playwright-stealth==2.0.2
+
+# AI agent for match analysis
+anthropic==0.49.0
+duckduckgo-search==7.5.3
 
 # Type hints
 python-dotenv==1.0.1

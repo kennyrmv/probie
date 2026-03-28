@@ -33,7 +33,11 @@ logger = logging.getLogger(__name__)
 POLYMARKET_BASE = "https://gamma-api.polymarket.com"
 FOOTBALL_DATA_BASE = "https://api.football-data.org/v4"
 FUZZY_THRESHOLD = 85  # minimum similarity score (0–100) to accept a match
-TIMESTAMP_WINDOW_MINUTES = 90  # ±90 min around Polymarket gameStartTime
+TIMESTAMP_WINDOW_MINUTES = 90  # ±90 min around Polymarket startTime
+
+# NOTE: Polymarket uses "startTime" (not "gameStartTime") for individual match events.
+# "gameStartTime" appears in older/tournament events; "startTime" is the correct field
+# for match-level events under tag "games". "period"="POST" means already played.
 
 ALIASES_PATH = Path(__file__).parent / "aliases.json"
 
@@ -111,12 +115,22 @@ def normalize_team_name(name: str) -> str:
 
 def fetch_polymarket_events(
     tag_slug: str = "soccer",
-    limit: int = 100,
+    limit: int = 500,
     max_retries: int = 3,
     base_delay: float = 1.0,
+    soccer_only: bool = False,
 ) -> list[dict]:
     """
-    Fetch active, non-closed Polymarket events for the given tag slug.
+    Fetch active, non-closed Polymarket soccer match events.
+
+    Uses tag_slug="soccer" with limit=500 to get ALL soccer events including:
+    - FIFA Friendlies (tag: fifa-friendly)
+    - EFL Championship, J-League, A-League, Liga MX, etc.
+    - Domestic leagues when in season
+
+    NOTE: First ~100 results are tournament-level markets (PL Winner, WC Winner, etc).
+    Individual match markets appear in positions 100-500. Use limit=500.
+    The date-window filter in this function removes past/stale events automatically.
 
     Key filter: closed=false — active=true alone returns resolved/closed markets.
     outcomePrices is a JSON string on each market; consumers must json.loads() it.
@@ -152,7 +166,40 @@ def fetch_polymarket_events(
                 )
 
             events = resp.json()
-            logger.info("Fetched %d Polymarket events (tag=%s)", len(events), tag_slug)
+
+            if soccer_only:
+                events = [
+                    e for e in events
+                    if any(t.get("slug") == "soccer" for t in e.get("tags", []))
+                ]
+
+            # Filter to upcoming/live matches only:
+            # - must have a startTime field
+            # - startTime must be within the next 7 days (not old stuck markets)
+            # - period != "POST" (already played)
+            from datetime import datetime, timezone, timedelta
+            now = datetime.now(timezone.utc)
+            window_future = now + timedelta(days=7)
+            window_past = now - timedelta(hours=3)  # allow in-progress matches
+
+            def _is_upcoming(e: dict) -> bool:
+                st = e.get("startTime") or ""
+                if not st:
+                    return False
+                if e.get("period", "").upper() == "POST":
+                    return False
+                try:
+                    dt = datetime.fromisoformat(st.replace("Z", "+00:00"))
+                    return window_past <= dt <= window_future
+                except ValueError:
+                    return False
+
+            events = [e for e in events if _is_upcoming(e)]
+
+            logger.info(
+                "Fetched %d Polymarket soccer match events (tag=%s, upcoming only)",
+                len(events), tag_slug,
+            )
             return events
 
         except httpx.TimeoutException as exc:
@@ -261,6 +308,104 @@ def get_all_outcome_probs(event: dict, home_team: str, away_team: str) -> dict[s
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Polymarket-first fixture extraction
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def fetch_today_from_polymarket(
+    pm_events: list[dict] | None = None,
+    hours_ahead: int = 24,
+) -> list[dict]:
+    """
+    Extract today's fixtures directly from Polymarket events.
+    Used as primary fixture source when football-data.org lacks coverage
+    (e.g. FIFA Friendlies, J-League, A-League).
+
+    Deduplicates "More Markets" variants — keeps only the primary event per match.
+    Returns list of fixture-like dicts with keys matching pipeline expectations:
+      homeTeam.name, awayTeam.name, utcDate, competition.name, _polymarket_event
+    """
+    if pm_events is None:
+        pm_events = fetch_polymarket_events()
+
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(hours=hours_ahead)
+
+    # Deduplicate: skip "- More Markets" variants
+    seen_pairs: set[tuple[str, str]] = set()
+    fixtures = []
+
+    for event in pm_events:
+        title = event.get("title", "")
+        if "More Markets" in title:
+            continue
+
+        start_str = event.get("startTime", "")
+        if not start_str:
+            continue
+
+        try:
+            kickoff = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+
+        if not (now - timedelta(hours=1) <= kickoff <= cutoff):
+            continue
+
+        teams = _parse_polymarket_title(title)
+        if not teams:
+            continue
+
+        home, away = teams
+        pair = (normalize_team_name(home), normalize_team_name(away))
+        if pair in seen_pairs:
+            continue
+        seen_pairs.add(pair)
+
+        # Infer competition from tags — only track big leagues + FIFA
+        tags = [t.get("slug", "") for t in event.get("tags", [])]
+
+        ALLOWED_TAG_TO_COMP = {
+            "fifa-friendly":        "FIFA Friendly",
+            "EPL":                  "Premier League",
+            "premier-league":       "Premier League",
+            "la-liga":              "La Liga",
+            "bundesliga":           "Bundesliga",
+            "serie-a":              "Serie A",
+            "ligue-1":              "Ligue 1",
+            "champions-league":     "UEFA Champions League",
+            "ucl":                  "UEFA Champions League",
+            "europa-league":        "UEFA Europa League",
+            "uel":                  "UEFA Europa League",
+            "efl-championship":     "EFL Championship",
+            "womens-champions-league": "UEFA Women's CL",
+        }
+
+        competition = next(
+            (ALLOWED_TAG_TO_COMP[t] for t in tags if t in ALLOWED_TAG_TO_COMP),
+            None,  # None = not a tracked competition
+        )
+
+        # Skip untracked competitions (J-League, A-League, Saudi Pro, etc.)
+        if competition is None:
+            continue
+
+        fixtures.append({
+            "homeTeam": {"name": home},
+            "awayTeam": {"name": away},
+            "utcDate": start_str,
+            "competition": {"name": competition},
+            "_polymarket_event": event,  # carry through for direct resolution
+        })
+
+    logger.info(
+        "fetch_today_from_polymarket: %d fixtures for next %dh",
+        len(fixtures), hours_ahead,
+    )
+    return fixtures
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # football-data.org API
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -340,6 +485,44 @@ def fetch_historical_matches(
         ) from exc
 
 
+def fetch_squad_for_team(team_id: int, api_key: str) -> list[dict]:
+    """
+    Fetch squad from football-data.org for a club team.
+    Returns up to 20 players with name, position, nationality.
+    Returns [] on any error (404, 429, timeout, etc.).
+
+    Position values from API: "Goalkeeper" | "Defence" | "Midfield" | "Offence"
+    """
+    url = f"{FOOTBALL_DATA_BASE}/teams/{team_id}"
+    try:
+        resp = httpx.get(url, headers={"X-Auth-Token": api_key}, timeout=10)
+        if resp.status_code == 429:
+            logger.warning("fetch_squad_for_team: rate limited for team %d", team_id)
+            return []
+        if resp.status_code != 200:
+            logger.debug("fetch_squad_for_team: HTTP %d for team %d", resp.status_code, team_id)
+            return []
+        data = resp.json()
+        squad = data.get("squad", [])
+        # Filter to senior squad: exclude "Coach" position entries
+        players = [
+            {
+                "name": p.get("name", ""),
+                "position": p.get("position", ""),
+                "nationality": p.get("nationality", ""),
+            }
+            for p in squad
+            if p.get("position") not in (None, "Coach", "")
+        ]
+        # Order: GK first, then DEF, MID, FWD — then return top 18
+        pos_order = {"Goalkeeper": 0, "Defence": 1, "Midfield": 2, "Offence": 3}
+        players.sort(key=lambda p: pos_order.get(p["position"], 9))
+        return players[:18]
+    except Exception as exc:
+        logger.warning("fetch_squad_for_team: error for team %d: %s", team_id, exc)
+        return []
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Match resolver: football-data.org fixture ↔ Polymarket event
 # ─────────────────────────────────────────────────────────────────────────────
@@ -351,10 +534,15 @@ def _parse_polymarket_title(title: str) -> tuple[str, str] | None:
     Handles: "Arsenal vs Chelsea", "Will Arsenal beat Chelsea?", etc.
     Returns (home, away) or None if unparseable.
     """
-    # Primary pattern: "TeamA vs TeamB"
-    match = re.search(r"([A-Z][^v]+?)\s+vs\.?\s+([A-Z][^\?]+)", title, re.IGNORECASE)
-    if match:
-        return match.group(1).strip(), match.group(2).strip()
+    # Primary pattern: split on " vs " or " vs. "
+    # Using re.split avoids the [^v] bug that cuts team names like "Deportivo" or "Ivoire"
+    parts = re.split(r"\s+vs\.?\s+", title, maxsplit=1, flags=re.IGNORECASE)
+    if len(parts) == 2:
+        home = parts[0].strip()
+        # Strip trailing qualifiers like " - More Markets", " (Group A)", etc.
+        away = re.split(r"\s+[-–(]", parts[1])[0].strip()
+        if home and away:
+            return home, away
 
     # Secondary: "Will [TeamA] beat/win against [TeamB]"
     match = re.search(
@@ -445,11 +633,12 @@ def resolve_match(
         if home_score < FUZZY_THRESHOLD or away_score < FUZZY_THRESHOLD:
             continue
 
-        # Timestamp gate: use gameStartTime (NOT endDate)
-        game_start_str = event.get("gameStartTime") or event.get("game_start_time") or ""
+        # Timestamp gate: use startTime (individual match events use "startTime";
+        # "gameStartTime" was a legacy field in older tournament-level events)
+        game_start_str = event.get("startTime") or event.get("gameStartTime") or ""
         if not game_start_str:
             logger.debug(
-                "resolve_match: event '%s' has no gameStartTime — skipping timestamp check",
+                "resolve_match: event '%s' has no startTime — skipping timestamp check",
                 event.get("slug"),
             )
             continue
@@ -460,7 +649,7 @@ def resolve_match(
             )
         except ValueError:
             logger.debug(
-                "resolve_match: unparseable gameStartTime '%s' for event '%s'",
+                "resolve_match: unparseable startTime '%s' for event '%s'",
                 game_start_str, event.get("slug"),
             )
             continue

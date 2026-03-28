@@ -37,6 +37,10 @@ class Match(Base):
     competition = Column(String(100), nullable=False)
     polymarket_neg_risk_market_id = Column(String(200), nullable=True)
     polymarket_event_slug = Column(String(200), nullable=True)
+    home_squad = Column(JSONB, nullable=True)   # [{name, position, nationality}]
+    away_squad = Column(JSONB, nullable=True)
+    lineup_data = Column(JSONB, nullable=True)   # confirmed lineups from API-Football
+    analysis_data = Column(JSONB, nullable=True) # on-demand AI analysis (Claude+web)
 
     predictions = relationship("Prediction", back_populates="match", cascade="all, delete-orphan")
     market_snapshots = relationship("MarketSnapshot", back_populates="match", cascade="all, delete-orphan")
