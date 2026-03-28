@@ -399,8 +399,8 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
           </div>
         )}
 
-        {/* Prior warning */}
-        {prior && (
+        {/* Prior warning — hide when IA has already adjusted the priors */}
+        {prior && !analysis && (
           <div style={{ marginTop: 6 }}>
             <span style={{ fontSize: 11, color: "var(--amber)" }}>⚠ Usando priors de liga</span>
           </div>
