@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface MissingPlayer {
   name: string;
@@ -104,15 +104,24 @@ export default function AnalysisPanel({
   homeTeam,
   awayTeam,
   initialData,
+  onAnalysisReady,
 }: {
   matchId: string;
   homeTeam: string;
   awayTeam: string;
   initialData: AnalysisData | null;
+  onAnalysisReady?: (a: AnalysisData) => void;
 }) {
   const [data, setData] = useState<AnalysisData | null>(initialData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Sync if parent fetches analysis via another path (e.g. lineup fetch background task)
+  useEffect(() => {
+    if (initialData && !data) {
+      setData(initialData);
+    }
+  }, [initialData]);
 
   const run = async () => {
     setLoading(true);
@@ -129,6 +138,7 @@ export default function AnalysisPanel({
       const json = await res.json();
       if (!res.ok) throw new Error(json.detail || `HTTP ${res.status}`);
       setData(json.analysis);
+      if (json.analysis) onAnalysisReady?.(json.analysis);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error desconocido");
     } finally {

@@ -536,6 +536,7 @@ export default function MatchModal({
             homeTeam={match.home_team}
             awayTeam={match.away_team}
             initialData={analysis}
+            onAnalysisReady={onAnalysisReady}
           />
         </div>
       </div>
