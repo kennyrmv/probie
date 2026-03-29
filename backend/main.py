@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.routes import router
 from database import SessionLocal, check_db_connection
 from pipeline.pipeline import run_daily_pipeline, run_refresh_pipeline, seed_historical_data
-from pipeline.performance import resolve_match_results
+from pipeline.performance import resolve_match_results, save_daily_picks, update_match_scores
 from api.routes import _run_analysis_and_store
 
 logging.basicConfig(
@@ -146,7 +146,22 @@ scheduler.add_job(
 def _resolve_results_job():
     with SessionLocal() as db:
         resolve_match_results(db)
+        update_match_scores(db)   # fetch scores for display (no AI gate)
         db.commit()
+
+
+def _save_daily_picks_job():
+    """
+    Persist today's top Veredictos del día server-side.
+    Runs after the daily pipeline so fresh analyses are included.
+    """
+    with SessionLocal() as db:
+        result = save_daily_picks(db)
+        db.commit()
+    logger.info(
+        "Daily picks saved: value=%s strength=%s",
+        result.get("value", "none"), result.get("strength", "none"),
+    )
 
 
 # Every 5 min — auto-fetch confirmed lineups for matches kicking off in ≤35 min
@@ -158,13 +173,19 @@ scheduler.add_job(
     id="auto_lineup",
 )
 
-# Every hour — resolve finished match results + compute CLV
+# Every 15 min — resolve finished match results + compute CLV + update scores
+# Same frequency as odds refresh so results appear within 15 min of match end
 scheduler.add_job(
     _resolve_results_job,
     "cron",
-    minute=10,  # offset from other jobs to spread load
+    minute="5,20,35,50",  # offset from refresh (:00,:15,:30,:45) to spread load
     id="resolve_results",
 )
+
+# Save Veredictos del día at 09:30 and 14:30 UTC (after each pipeline run)
+# Captures picks after morning analysis + lineup data that arrives during the day
+scheduler.add_job(_save_daily_picks_job, "cron", hour=9,  minute=30, id="daily_picks_morning")
+scheduler.add_job(_save_daily_picks_job, "cron", hour=14, minute=30, id="daily_picks_afternoon")
 
 
 @app.on_event("startup")

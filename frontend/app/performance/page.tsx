@@ -9,6 +9,14 @@ interface TierStats {
   avg_clv_pp: number | null;
 }
 
+interface PickTypeStats {
+  signals: number;
+  win_rate: number | null;
+  avg_clv_pp: number | null;
+  roi_simulation: number | null;
+  unit: number;
+}
+
 interface RecentSignal {
   match: string;
   kickoff: string | null;
@@ -17,6 +25,7 @@ interface RecentSignal {
   hit: boolean;
   signal_source: "edge" | "fuerza" | null;
   lineup_confirmed: boolean | null;
+  is_top_pick: boolean;
   model_prob: number | null;
   entry_poly_prob: number | null;
   closing_poly_prob: number | null;
@@ -32,6 +41,7 @@ interface PerformanceData {
   brier_market: number | null;
   roi_simulation: number | null;
   by_source: { edge: TierStats; fuerza: TierStats };
+  by_pick_type: { top_picks: PickTypeStats; secondary: PickTypeStats };
   recent: RecentSignal[];
 }
 
@@ -393,6 +403,147 @@ export default function PerformancePage() {
             })}
           </div>
 
+          {/* Veredictos del día vs Señales secundarias */}
+          <div
+            style={{
+              border: "1px solid var(--border, #e5e7eb)",
+              borderRadius: 8,
+              background: "var(--surface, #fff)",
+              marginBottom: 16,
+              overflow: "hidden",
+            }}
+          >
+            <p
+              style={{
+                fontSize: 10,
+                color: "var(--muted, #888)",
+                textTransform: "uppercase",
+                letterSpacing: "0.1em",
+                padding: "12px 16px",
+                borderBottom: "1px solid var(--border, #e5e7eb)",
+                ...mono,
+              }}
+            >
+              🏆 Veredictos del día vs Señales secundarias
+            </p>
+            <div style={{ display: "flex", gap: 0 }}>
+              {(
+                [
+                  {
+                    key: "top_picks" as const,
+                    label: "🏆 Veredictos del día",
+                    sublabel: "El mejor pick diario · 1 unidad",
+                    accent: "#7c3aed",
+                    bg: "#f5f3ff",
+                  },
+                  {
+                    key: "secondary" as const,
+                    label: "Señales secundarias",
+                    sublabel: "Resto de señales analizadas · 0.5 unidades",
+                    accent: "var(--muted, #888)",
+                    bg: "var(--bg, #f9fafb)",
+                  },
+                ] as const
+              ).map((col, i) => {
+                const t = d.by_pick_type[col.key];
+                return (
+                  <div
+                    key={col.key}
+                    style={{
+                      flex: 1,
+                      padding: "14px 16px",
+                      background: col.bg,
+                      borderRight: i === 0 ? "1px solid var(--border, #e5e7eb)" : undefined,
+                    }}
+                  >
+                    <p
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: col.accent,
+                        marginBottom: 2,
+                        ...mono,
+                      }}
+                    >
+                      {col.label}
+                    </p>
+                    <p
+                      style={{
+                        fontSize: 10,
+                        color: "var(--muted, #888)",
+                        marginBottom: 12,
+                      }}
+                    >
+                      {col.sublabel}
+                    </p>
+                    <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+                      <div>
+                        <p style={{ fontSize: 10, color: "var(--muted, #888)" }}>Señales</p>
+                        <p style={{ fontSize: 18, fontWeight: 600, ...mono }}>{t.signals}</p>
+                      </div>
+                      <div>
+                        <p style={{ fontSize: 10, color: "var(--muted, #888)" }}>Win rate</p>
+                        <p
+                          style={{
+                            fontSize: 18,
+                            fontWeight: 600,
+                            ...mono,
+                            color:
+                              t.win_rate === null
+                                ? "var(--muted)"
+                                : t.win_rate >= 0.5
+                                ? "var(--green, #16a34a)"
+                                : "var(--red, #dc2626)",
+                          }}
+                        >
+                          {pct(t.win_rate)}
+                        </p>
+                      </div>
+                      <div>
+                        <p style={{ fontSize: 10, color: "var(--muted, #888)" }}>Drift</p>
+                        <p
+                          style={{
+                            fontSize: 18,
+                            fontWeight: 600,
+                            ...mono,
+                            color:
+                              t.avg_clv_pp === null
+                                ? "var(--muted)"
+                                : t.avg_clv_pp > 0
+                                ? "var(--green, #16a34a)"
+                                : "var(--red, #dc2626)",
+                          }}
+                        >
+                          {pp(t.avg_clv_pp)}
+                        </p>
+                      </div>
+                      <div>
+                        <p style={{ fontSize: 10, color: "var(--muted, #888)" }}>ROI</p>
+                        <p
+                          style={{
+                            fontSize: 18,
+                            fontWeight: 600,
+                            ...mono,
+                            color:
+                              t.roi_simulation === null
+                                ? "var(--muted)"
+                                : t.roi_simulation >= 0
+                                ? "var(--green, #16a34a)"
+                                : "var(--red, #dc2626)",
+                          }}
+                        >
+                          {t.roi_simulation === null
+                            ? "—"
+                            : `${t.roi_simulation >= 0 ? "+" : ""}${t.roi_simulation.toFixed(1)}%`}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Recent signals table */}
           <div
             style={{
@@ -428,6 +579,7 @@ export default function PerformancePage() {
                       "Entrada",
                       "Cierre",
                       "Drift",
+                      "",  // top pick trophy column
                     ].map((h) => (
                       <th
                         key={h}
@@ -532,6 +684,13 @@ export default function PerformancePage() {
                         }}
                       >
                         {pp(s.clv_pp)}
+                      </td>
+                      <td style={{ padding: "8px 12px", textAlign: "center" }}>
+                        {s.is_top_pick && (
+                          <span title="Veredicto del día" style={{ fontSize: 14 }}>
+                            🏆
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}

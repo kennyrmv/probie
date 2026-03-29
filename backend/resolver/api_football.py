@@ -332,6 +332,8 @@ def fetch_lineup_for_match(
         "source": "api-football",
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "api_fixture_id": fixture_id,
+        "lineup_confirmed": True,   # API-Football only publishes official confirmed lineups
+        "source_type": "official",  # never speculative — API requires team to submit
         **lineup,
         **injuries,
     }

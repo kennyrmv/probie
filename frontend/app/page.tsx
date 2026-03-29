@@ -419,7 +419,9 @@ export default function HomePage() {
   }, [fetchMatches]);
 
   const scheduled = matches.filter(m => getMatchState(m.kickoff, m.match_status) === "scheduled");
-  const liveOrFinished = matches.filter(m => getMatchState(m.kickoff, m.match_status) !== "scheduled");
+  const live = matches.filter(m => getMatchState(m.kickoff, m.match_status) === "live");
+  const finished = matches.filter(m => getMatchState(m.kickoff, m.match_status) === "finished");
+  const liveOrFinished = [...live, ...finished];
 
   const highValue = scheduled.filter(m => m.best_value_tier === "high");
   const midValue  = scheduled.filter(m => m.best_value_tier === "mid");
@@ -522,7 +524,9 @@ export default function HomePage() {
                   className="mono"
                   style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10 }}
                 >
-                  En curso / finalizados · {liveOrFinished.length} {liveOrFinished.length === 1 ? "partido" : "partidos"}
+                  {live.length > 0 && <span style={{ color: "#dc2626" }}>● {live.length} en curso</span>}
+                  {live.length > 0 && finished.length > 0 && <span> · </span>}
+                  {finished.length > 0 && <span>{finished.length} {finished.length === 1 ? "finalizado" : "finalizados"}</span>}
                 </p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {liveOrFinished.map((m, i) => (

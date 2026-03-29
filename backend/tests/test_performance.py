@@ -168,7 +168,8 @@ class TestResolveFromFootballData:
              "score": {"fullTime": {"home": 2, "away": 1}}}
         ]
 
-        with patch("pipeline.performance.fetch_results_for_date", return_value=api_result):
+        with patch("pipeline.performance.fetch_results_from_espn", return_value=[]), \
+             patch("pipeline.performance.fetch_results_for_date", return_value=api_result):
             result = _resolve_from_football_data(match, api_key="test")
 
         assert result == ("home", 2, 1)
@@ -181,7 +182,8 @@ class TestResolveFromFootballData:
              "score": {"fullTime": {"home": 1, "away": 1}}}
         ]
 
-        with patch("pipeline.performance.fetch_results_for_date", return_value=api_result):
+        with patch("pipeline.performance.fetch_results_from_espn", return_value=[]), \
+             patch("pipeline.performance.fetch_results_for_date", return_value=api_result):
             result = _resolve_from_football_data(match, api_key="test")
 
         assert result == ("draw", 1, 1)
@@ -194,7 +196,8 @@ class TestResolveFromFootballData:
              "score": {"fullTime": {"home": 0, "away": 2}}}
         ]
 
-        with patch("pipeline.performance.fetch_results_for_date", return_value=api_result):
+        with patch("pipeline.performance.fetch_results_from_espn", return_value=[]), \
+             patch("pipeline.performance.fetch_results_for_date", return_value=api_result):
             result = _resolve_from_football_data(match, api_key="test")
 
         assert result == ("away", 0, 2)
@@ -207,7 +210,8 @@ class TestResolveFromFootballData:
              "score": {"fullTime": {"home": 3, "away": 0}}}
         ]
 
-        with patch("pipeline.performance.fetch_results_for_date", return_value=api_result):
+        with patch("pipeline.performance.fetch_results_from_espn", return_value=[]), \
+             patch("pipeline.performance.fetch_results_for_date", return_value=api_result):
             result = _resolve_from_football_data(match, api_key="test")
 
         assert result is None
@@ -216,8 +220,39 @@ class TestResolveFromFootballData:
         """FootballDataAPIError is swallowed and returns None."""
         match = self._make_match("Arsenal", "Chelsea")
 
-        with patch("pipeline.performance.fetch_results_for_date",
-                   side_effect=FootballDataAPIError("network fail")):
+        with patch("pipeline.performance.fetch_results_from_espn",
+                   side_effect=FootballDataAPIError("espn fail")), \
+             patch("pipeline.performance.fetch_results_for_date",
+                   side_effect=FootballDataAPIError("fd fail")):
             result = _resolve_from_football_data(match, api_key="test")
 
         assert result is None
+
+    def test_espn_takes_priority_over_fd(self):
+        """ESPN result is used without calling football-data.org."""
+        match = self._make_match("Arsenal", "Chelsea")
+        espn_result = [
+            {"homeTeam": {"name": "Arsenal"}, "awayTeam": {"name": "Chelsea"},
+             "score": {"fullTime": {"home": 3, "away": 0}}}
+        ]
+
+        with patch("pipeline.performance.fetch_results_from_espn", return_value=espn_result) as mock_espn, \
+             patch("pipeline.performance.fetch_results_for_date") as mock_fd:
+            result = _resolve_from_football_data(match, api_key="test")
+
+        assert result == ("home", 3, 0)
+        mock_fd.assert_not_called()  # FD should not be called when ESPN succeeds
+
+    def test_falls_back_to_fd_when_espn_empty(self):
+        """If ESPN has no result, falls back to football-data.org."""
+        match = self._make_match("Arsenal", "Chelsea")
+        fd_result = [
+            {"homeTeam": {"name": "Arsenal"}, "awayTeam": {"name": "Chelsea"},
+             "score": {"fullTime": {"home": 1, "away": 0}}}
+        ]
+
+        with patch("pipeline.performance.fetch_results_from_espn", return_value=[]), \
+             patch("pipeline.performance.fetch_results_for_date", return_value=fd_result):
+            result = _resolve_from_football_data(match, api_key="test")
+
+        assert result == ("home", 1, 0)

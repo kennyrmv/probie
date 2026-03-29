@@ -93,11 +93,13 @@ class TestNormalizeTeamName:
 class TestFetchPolymarketEvents:
     def test_returns_only_active_and_not_closed(self):
         """Verifies closed=false is included in request params."""
+        # startTime must be within fetch_polymarket_events' 7-day window
+        future_time = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        event = {"id": "1", "title": "Arsenal vs Chelsea", "active": True, "closed": False, "startTime": future_time}
+
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = [
-            {"id": "1", "title": "Arsenal vs Chelsea", "active": True, "closed": False}
-        ]
+        mock_response.json.return_value = [event]
 
         with patch("resolver.resolver.httpx.Client") as mock_client_class:
             mock_client = MagicMock()
@@ -107,21 +109,24 @@ class TestFetchPolymarketEvents:
             result = fetch_polymarket_events()
 
             # Verify closed=false was in the params
-            call_kwargs = mock_client.get.call_args
-            params = call_kwargs.kwargs.get("params") or call_kwargs.args[1] if len(call_kwargs.args) > 1 else {}
-            # The params might be positional or keyword depending on call
-            all_args = str(call_kwargs)
+            all_args = str(mock_client.get.call_args)
             assert "closed" in all_args
-            assert result == [{"id": "1", "title": "Arsenal vs Chelsea", "active": True, "closed": False}]
+            # Event passes the _is_upcoming filter and is returned as-is
+            assert len(result) == 1
+            assert result[0]["id"] == "1"
+            assert result[0]["title"] == "Arsenal vs Chelsea"
 
     def test_handles_429_with_exponential_backoff(self):
         """On 429, retries with delay."""
         rate_limit_response = MagicMock()
         rate_limit_response.status_code = 429
 
+        # startTime must be within fetch_polymarket_events' 7-day window
+        future_time = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         ok_response = MagicMock()
         ok_response.status_code = 200
-        ok_response.json.return_value = [{"id": "1"}]
+        ok_response.json.return_value = [{"id": "1", "startTime": future_time}]
 
         with patch("resolver.resolver.httpx.Client") as mock_client_class:
             with patch("resolver.resolver.time.sleep") as mock_sleep:
@@ -133,7 +138,8 @@ class TestFetchPolymarketEvents:
                 result = fetch_polymarket_events(max_retries=3, base_delay=0.01)
 
                 assert mock_sleep.call_count >= 1
-                assert result == [{"id": "1"}]
+                assert len(result) == 1
+                assert result[0]["id"] == "1"
 
     def test_network_timeout_raises_polymarket_api_error(self):
         import httpx as _httpx

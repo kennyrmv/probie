@@ -141,6 +141,13 @@ def analyze_match(match_id: str, db: Session = Depends(get_db)):
             lineup_data=match.lineup_data,      # Pass confirmed lineup if available
             outcomes=outcomes_context,           # Pass math context (model vs market)
         )
+        # Freeze market probs at analysis time — prevents showing post-match 100% prices
+        if outcomes_context:
+            analysis["market_probs_at_analysis"] = {
+                o["outcome"]: o["polymarket_prob"]
+                for o in outcomes_context
+                if o.get("polymarket_prob") is not None
+            }
         match.analysis_data = analysis
         db.commit()
         return {"status": "ok", "analysis": analysis}
@@ -296,11 +303,25 @@ def admin_seed():
 @router.post("/api/admin/resolve-results")
 def admin_resolve_results():
     """Manually trigger the match result resolution + CLV computation job."""
-    from pipeline.performance import resolve_match_results
+    from pipeline.performance import resolve_match_results, update_match_scores
     with SessionLocal() as db:
         n = resolve_match_results(db)
+        s = update_match_scores(db)
         db.commit()
-    return {"status": "ok", "resolved": n}
+    return {"status": "ok", "resolved": n, "scores_updated": s}
+
+
+@router.post("/api/admin/save-daily-picks")
+def admin_save_daily_picks():
+    """
+    Manually trigger saving of today's top Veredictos del día.
+    Mirrors frontend pickBestBets() logic server-side.
+    """
+    from pipeline.performance import save_daily_picks
+    with SessionLocal() as db:
+        result = save_daily_picks(db)
+        db.commit()
+    return {"status": "ok", **result}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -319,9 +340,10 @@ def get_performance(db: Session = Depends(get_db)):
       - avg_clv_pp: average CLV in percentage points (>0 = model is sharp)
       - brier_model: Brier score for Dixon-Coles predictions (lower = better)
       - brier_market: Brier score using Polymarket entry price (compare to model)
-      - roi_simulation: simulated ROI if betting flat 1 unit on every signal
-      - by_source: breakdown by signal type — "edge" (⚡ Edge confirmado) vs "fuerza" (💪 Apuesta de fuerza)
-      - recent: last 20 resolved signals for the table
+      - roi_simulation: weighted ROI (top picks = 1 unit, secondary = 0.5 unit)
+      - by_source: breakdown by signal type — "edge" (⚡) vs "fuerza" (💪)
+      - by_pick_type: breakdown by pick weight — "top_picks" vs "secondary"
+      - recent: last 20 resolved signals for the table (includes is_top_pick)
     """
     from models import CalibrationLog, Prediction
     from sqlalchemy import func as sqlfunc
@@ -344,6 +366,7 @@ def get_performance(db: Session = Depends(get_db)):
                 "brier_market": None,
                 "roi_simulation": None,
                 "by_source": {"edge": _empty_tier(), "fuerza": _empty_tier()},
+                "by_pick_type": {"top_picks": _empty_pick_stats(), "secondary": _empty_pick_stats()},
                 "recent": [],
             }
 
@@ -377,13 +400,15 @@ def get_performance(db: Session = Depends(get_db)):
             model_brier = None
             market_brier = None
 
-        # ROI simulation — flat 1 unit per signal, decimal odds = 1/entry_poly_prob
-        roi_logs = [l for l in logs if l.entry_poly_prob and l.entry_poly_prob > 0.01]
-        if roi_logs:
-            total_staked = len(roi_logs)
-            total_return = sum(
-                (1.0 / l.entry_poly_prob) if l.signal_outcome == l.actual_result else 0.0
-                for l in roi_logs
+        # ROI simulation — weighted: top picks = 1.0 unit, secondary = 0.5 unit
+        # More realistic than flat betting — reflects actual confidence tiers
+        roi_top = [l for l in logs if l.is_top_pick and l.entry_poly_prob and l.entry_poly_prob > 0.01]
+        roi_sec = [l for l in logs if not l.is_top_pick and l.entry_poly_prob and l.entry_poly_prob > 0.01]
+        total_staked = len(roi_top) * 1.0 + len(roi_sec) * 0.5
+        if total_staked > 0:
+            total_return = (
+                sum((1.0 / l.entry_poly_prob) if l.signal_outcome == l.actual_result else 0.0 for l in roi_top) +
+                sum((0.5 / l.entry_poly_prob) if l.signal_outcome == l.actual_result else 0.0 for l in roi_sec)
             )
             roi_pct = round((total_return - total_staked) / total_staked * 100, 2)
         else:
@@ -393,6 +418,14 @@ def get_performance(db: Session = Depends(get_db)):
         by_source = {
             "edge":   _compute_tier_stats([l for l in logs if l.signal_source == "edge"]),
             "fuerza": _compute_tier_stats([l for l in logs if l.signal_source == "fuerza"]),
+        }
+
+        # ── By pick type (Veredictos del día vs secondary signals) ──────────
+        top_logs = [l for l in logs if l.is_top_pick]
+        sec_logs = [l for l in logs if not l.is_top_pick]
+        by_pick_type = {
+            "top_picks": _compute_pick_stats(top_logs, unit=1.0),
+            "secondary": _compute_pick_stats(sec_logs, unit=0.5),
         }
 
         # ── Recent 20 ───────────────────────────────────────────────────────
@@ -408,6 +441,7 @@ def get_performance(db: Session = Depends(get_db)):
                 "hit": l.signal_outcome == l.actual_result,
                 "signal_source": l.signal_source,
                 "lineup_confirmed": l.lineup_confirmed,
+                "is_top_pick": bool(l.is_top_pick),
                 "model_prob": round(l.model_prob, 3) if l.model_prob else None,
                 "entry_poly_prob": round(l.entry_poly_prob, 3) if l.entry_poly_prob else None,
                 "closing_poly_prob": round(l.closing_poly_prob, 3) if l.closing_poly_prob else None,
@@ -423,6 +457,7 @@ def get_performance(db: Session = Depends(get_db)):
             "brier_market": market_brier,
             "roi_simulation": roi_pct,
             "by_source": by_source,
+            "by_pick_type": by_pick_type,
             "recent": recent,
         }
 
@@ -435,6 +470,10 @@ def _empty_tier() -> dict:
     return {"signals": 0, "win_rate": None, "avg_clv_pp": None}
 
 
+def _empty_pick_stats() -> dict:
+    return {"signals": 0, "win_rate": None, "avg_clv_pp": None, "roi_simulation": None}
+
+
 def _compute_tier_stats(logs: list) -> dict:
     if not logs:
         return _empty_tier()
@@ -444,6 +483,28 @@ def _compute_tier_stats(logs: list) -> dict:
         "signals": len(logs),
         "win_rate": round(wins / len(logs), 4),
         "avg_clv_pp": round(sum(l.clv_pp for l in clv_logs) / len(clv_logs), 2) if clv_logs else None,
+    }
+
+
+def _compute_pick_stats(logs: list, unit: float = 1.0) -> dict:
+    """Compute stats for a subset of CalibrationLog entries with a given bet unit size."""
+    if not logs:
+        return _empty_pick_stats()
+    wins = sum(1 for l in logs if l.signal_outcome == l.actual_result)
+    clv_logs = [l for l in logs if l.clv_pp is not None]
+    roi_logs = [l for l in logs if l.entry_poly_prob and l.entry_poly_prob > 0.01]
+    roi_staked = len(roi_logs) * unit
+    roi_return = sum(
+        (unit / l.entry_poly_prob) if l.signal_outcome == l.actual_result else 0.0
+        for l in roi_logs
+    )
+    roi_pct = round((roi_return - roi_staked) / roi_staked * 100, 2) if roi_staked > 0 else None
+    return {
+        "signals": len(logs),
+        "win_rate": round(wins / len(logs), 4),
+        "avg_clv_pp": round(sum(l.clv_pp for l in clv_logs) / len(clv_logs), 2) if clv_logs else None,
+        "roi_simulation": roi_pct,
+        "unit": unit,
     }
 
 
@@ -517,6 +578,13 @@ def _run_analysis_and_store(match_id: str) -> None:
                 lineup_data=match.lineup_data,
                 outcomes=outcomes_context,
             )
+            # Freeze market probs at analysis time — prevents showing post-match 100% prices
+            if outcomes_context:
+                analysis["market_probs_at_analysis"] = {
+                    o["outcome"]: o["polymarket_prob"]
+                    for o in outcomes_context
+                    if o.get("polymarket_prob") is not None
+                }
             match.analysis_data = analysis
             db.commit()
             logger.info("Background analysis stored for match %s", match_id)
@@ -552,6 +620,33 @@ def _build_match_response(db: Session, match: Match) -> dict | None:
                 "away": adj.get("away", 0.0),
             }
 
+    # Market probs frozen at analysis time — prevents post-match 100% prices distorting the card
+    frozen_probs: dict = {}
+    if match.analysis_data:
+        if match.analysis_data.get("market_probs_at_analysis"):
+            # New analyses: probs stored explicitly at analysis time
+            frozen_probs = match.analysis_data["market_probs_at_analysis"]
+        elif match.analysis_data.get("analyzed_at"):
+            # Legacy analyses: find the snapshot closest to analyzed_at timestamp
+            try:
+                from dateutil.parser import parse as parse_dt
+                analyzed_at = parse_dt(match.analysis_data["analyzed_at"])
+                for _outcome in ("home", "draw", "away"):
+                    snap_at = (
+                        db.query(MarketSnapshot)
+                        .filter(
+                            MarketSnapshot.match_id == match.id,
+                            MarketSnapshot.outcome == _outcome,
+                            MarketSnapshot.snapshotted_at <= analyzed_at,
+                        )
+                        .order_by(desc(MarketSnapshot.snapshotted_at))
+                        .first()
+                    )
+                    if snap_at:
+                        frozen_probs[_outcome] = snap_at.polymarket_prob
+            except Exception:
+                pass  # Fall through to live snapshot
+
     for outcome in ("home", "draw", "away"):
         snapshot = (
             db.query(MarketSnapshot)
@@ -574,18 +669,21 @@ def _build_match_response(db: Session, match: Match) -> dict | None:
         ai_model_prob = round(max(0.01, min(0.98, model_prob + raw_adjustment)), 4)
 
         if snapshot:
-            delta_pp = snapshot.delta_pp
             value_tier = snapshot.value_tier
-            polymarket_prob = snapshot.polymarket_prob
             polymarket_url = _build_polymarket_url(match, outcome)
-            # AI-adjusted delta
+            # Use frozen prob if available (snapshot at analysis time), else live snapshot
+            if outcome in frozen_probs:
+                polymarket_prob = frozen_probs[outcome]
+            else:
+                polymarket_prob = snapshot.polymarket_prob
+            delta_pp = round((model_prob - polymarket_prob) * 100, 1) if polymarket_prob else snapshot.delta_pp
             ai_delta_pp = round((ai_model_prob - polymarket_prob) * 100, 1) if polymarket_prob else None
         else:
             delta_pp = None
             value_tier = None
-            polymarket_prob = None
+            polymarket_prob = frozen_probs.get(outcome)  # may still have frozen prob even without snapshot
             polymarket_url = None
-            ai_delta_pp = None
+            ai_delta_pp = round((ai_model_prob - polymarket_prob) * 100, 1) if polymarket_prob else None
 
         outcome_obj = {
             "outcome": outcome,

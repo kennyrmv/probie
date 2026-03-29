@@ -126,6 +126,7 @@ WEB SEARCH RESULTS:
 
 Extract the starting lineup for this match. Return ONLY this JSON:
 {{
+  "source_type": "unknown",
   "confirmed": false,
   "home_formation": "4-3-3",
   "away_formation": "4-2-3-1",
@@ -141,10 +142,32 @@ Extract the starting lineup for this match. Return ONLY this JSON:
   "away_missing": [{{"name": "Player Name", "reason": "injury/suspension"}}]
 }}
 
-Rules:
-- Set "confirmed": true only if the source explicitly says these are the official/confirmed lineup
-- Set "confirmed": false if these are predicted/expected/probable lineups — still include them
-- If there is truly no lineup info at all (no names mentioned), return {{"confirmed": false, "home_starters": [], "away_starters": []}}
+CRITICAL — source_type field determines whether we trust this lineup for betting:
+
+"official" — the lineup was formally submitted to the referee and published by the TEAM
+or a LIVE MATCH TRACKING source TODAY:
+  - Club's official Twitter/X/Instagram posting "Our #StartingXI for today!" with player names
+  - Sofascore or Flashscore showing a "Confirmed Lineup" section (green checkmark / live match)
+  - Official team sheet posted by the club or competition body
+  - TV broadcast showing the announced starting XI for today's match
+  KEY TEST: was this XI submitted to the referee for THIS specific match today?
+  Set "official" ONLY for unambiguous match-day official sources.
+
+"probable" — the lineup is a prediction, press conference statement, or pre-match article:
+  - Press conferences ("el técnico anunció que jugará X mañana", "el entrenador confirmó")
+  - Journalist articles: "probable XI", "expected lineup", "alineación probable", "team news"
+  - Sources using words like: probable, expected, likely, posible, podría, prevista, previsto
+  - Training observations or sources published BEFORE today
+  - ANY media/news site (infobae, espn, marca, as, etc.) even if they say "confirmada" —
+    journalists use that word loosely for press-conference selections, NOT the official XI
+  - Sources published more than 3 hours before kickoff from non-official club accounts
+  Still include all player names — useful context for analysis even if not confirmed.
+
+"unknown" — no lineup information at all in the search results
+
+Set "confirmed": true ONLY when source_type is "official".
+If source_type is "probable", set "confirmed": false but still include player names.
+If source_type is "unknown", return empty home_starters and away_starters.
 - jersey field can be empty string
 - home_subs and away_subs can be []"""
 
@@ -203,9 +226,19 @@ def fetch_lineup_for_match(
         len(data.get("away_starters", [])),
     )
 
-    confirmed = data.get("confirmed", False)
+    # Override Claude's self-reported "confirmed" flag with the stricter source_type check.
+    # Claude can be convinced by journalistic "confirmada" language — source_type is more reliable.
+    source_type = data.get("source_type", "unknown")
+    confirmed = (source_type == "official")  # Only official club/live-match sources count
+
+    logger.info(
+        "Claude lineup source_type=%s confirmed=%s for %s vs %s",
+        source_type, confirmed, home_team, away_team,
+    )
+
     return {
         "source": "claude+duckduckgo",
+        "source_type": source_type,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "lineup_confirmed": confirmed,
         "home_formation": data.get("home_formation", ""),
