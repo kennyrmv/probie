@@ -356,12 +356,8 @@ export default function HomePage() {
       const res = await fetch("/api/matches/today", { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: Match[] = await res.json();
-      data.sort((a, b) => {
-        if (a.best_delta_pp === null && b.best_delta_pp === null) return 0;
-        if (a.best_delta_pp === null) return 1;
-        if (b.best_delta_pp === null) return -1;
-        return b.best_delta_pp - a.best_delta_pp;
-      });
+      // Sort by kickoff time (earliest first) — so you always see what's coming up next
+      data.sort((a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime());
       setMatches(data);
       setLastUpdated(new Date());
       setError(null);
