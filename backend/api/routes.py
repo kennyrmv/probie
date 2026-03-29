@@ -67,8 +67,8 @@ def get_matches_today(background_tasks: BackgroundTasks, db: Session = Depends(g
     try:
         from datetime import timedelta
         now = datetime.now(timezone.utc)
-        # Show matches from 2h ago (live/just started) up to 36h ahead
-        window_start = now - timedelta(hours=2)
+        # Show matches from 4h ago (live/just finished + Polymarket settlement time) up to 36h ahead
+        window_start = now - timedelta(hours=4)
         window_end = now + timedelta(hours=36)
 
         today_matches = (
@@ -235,8 +235,12 @@ def record_match_result(match_id: str, result: dict, db: Session = Depends(get_d
     if home_score is None or away_score is None:
         raise HTTPException(status_code=422, detail="home_score and away_score required")
 
-    match.home_score = int(home_score)
-    match.away_score = int(away_score)
+    # Cast before comparison — string inputs like "10" vs "9" compare lexicographically
+    home_score = int(home_score)
+    away_score = int(away_score)
+
+    match.home_score = home_score
+    match.away_score = away_score
     match.match_status = "finished"
 
     # Determine actual result outcome
@@ -247,25 +251,10 @@ def record_match_result(match_id: str, result: dict, db: Session = Depends(get_d
     else:
         actual = "draw"
 
-    # Log to calibration_log if there's a prediction
-    try:
-        from models import CalibrationLog, Prediction
-        from sqlalchemy import desc as _desc
-        prediction = (
-            db.query(Prediction)
-            .filter(Prediction.match_id == match.id)
-            .order_by(_desc(Prediction.created_at))
-            .first()
-        )
-        if prediction:
-            cal = CalibrationLog(
-                prediction_id=prediction.id,
-                actual_result=actual,
-            )
-            db.add(cal)
-    except Exception as exc:
-        logger.warning("Could not write calibration log for match %s: %s", match_id, exc)
-
+    # NOTE: CalibrationLog is intentionally NOT written here.
+    # The hourly resolve_match_results() job handles all CLV + signal tracking.
+    # Writing here would create an incomplete row (no signal_source/CLV) that gets
+    # permanently excluded from the performance dashboard.
     db.commit()
     logger.info(
         "Result recorded: %s vs %s = %d-%d (%s)",

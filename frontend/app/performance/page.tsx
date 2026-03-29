@@ -218,7 +218,7 @@ export default function PerformancePage() {
             <StatCard
               label="Win rate"
               value={pct(d.win_rate)}
-              sub={`${Math.round((d.win_rate ?? 0) * d.total_signals)} de ${d.total_signals} aciertos`}
+              sub={`${Math.round((d.win_rate ?? 0) * (d.total_signals ?? 0))} de ${d.total_signals ?? 0} aciertos`}
               color={
                 d.win_rate === null
                   ? "var(--muted)"
@@ -229,11 +229,11 @@ export default function PerformancePage() {
               tooltip="Porcentaje de señales donde el outcome predicho fue correcto"
             />
             <StatCard
-              label="CLV promedio"
+              label="Market Drift"
               value={pp(d.avg_clv_pp)}
-              sub="cierre vs entrada"
+              sub="cierre vs entrada (pp)"
               color={clvColor}
-              tooltip="Closing Line Value: si las odds de Polymarket se movieron hacia nuestra predicción antes del partido. Positivo = el modelo es más rápido que el mercado."
+              tooltip="Market Drift: ¿se movieron las odds de Polymarket hacia nuestra predicción antes del partido? Positivo = el mercado confirmó nuestra señal. (Métrica propia, ≠ CLV estándar)"
             />
             <StatCard
               label="ROI simulado"
@@ -427,7 +427,7 @@ export default function PerformancePage() {
                       "Modelo",
                       "Entrada",
                       "Cierre",
-                      "CLV",
+                      "Drift",
                     ].map((h) => (
                       <th
                         key={h}
