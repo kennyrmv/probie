@@ -281,33 +281,39 @@ export default function AnalysisPanel({
           </div>
         )}
 
-        {/* ── Top 3 jugadores locales ── */}
-        {data.top_players_home && data.top_players_home.length > 0 && (
-          <div>
-            <p className="mono" style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>
-              Claves · {homeTeam}
-            </p>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {data.top_players_home.slice(0, 3).map((p, i) => (
-                <TopPlayerCard key={i} player={p} />
-              ))}
+        {/* ── Top jugadores — equipo recomendado primero ── */}
+        {(() => {
+          const signalSide = data.bet_signal?.side;
+          const homeBlock = data.top_players_home && data.top_players_home.length > 0 ? (
+            <div key="home">
+              <p className="mono" style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>
+                Claves · {homeTeam}
+              </p>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {data.top_players_home.slice(0, 3).map((p, i) => (
+                  <TopPlayerCard key={i} player={p} />
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-
-        {/* ── Top 3 jugadores visitantes ── */}
-        {data.top_players_away && data.top_players_away.length > 0 && (
-          <div>
-            <p className="mono" style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>
-              Claves · {awayTeam}
-            </p>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {data.top_players_away.slice(0, 3).map((p, i) => (
-                <TopPlayerCard key={i} player={p} />
-              ))}
+          ) : null;
+          const awayBlock = data.top_players_away && data.top_players_away.length > 0 ? (
+            <div key="away">
+              <p className="mono" style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>
+                Claves · {awayTeam}
+              </p>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {data.top_players_away.slice(0, 3).map((p, i) => (
+                  <TopPlayerCard key={i} player={p} />
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          ) : null;
+          // Si la señal es para el visitante, mostrar visitante primero
+          const blocks = signalSide === "away"
+            ? [awayBlock, homeBlock]
+            : [homeBlock, awayBlock];
+          return blocks.filter(Boolean);
+        })()}
 
         {/* ── Factores clave ── */}
         {data.key_factors && data.key_factors.length > 0 && (

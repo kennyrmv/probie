@@ -208,8 +208,8 @@ function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
         {card.match.home_team} vs {card.match.away_team}
       </div>
 
-      {/* Probabilidades */}
-      {card.ourProb !== null && (
+      {/* Probabilidades — layout distinto según tipo de señal */}
+      {isValue && card.ourProb !== null && (
         <div style={{
           display: "flex", gap: 12, alignItems: "center",
           padding: "8px 10px",
@@ -230,7 +230,7 @@ function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
             </div>
             <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>Mercado</div>
           </div>
-          {isValue && card.marketProb !== null && card.ourProb !== null && (
+          {card.marketProb !== null && (
             <div style={{ marginLeft: "auto", textAlign: "right" }}>
               <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: accentColor }}>
                 +{Math.round((card.ourProb - card.marketProb) * 100)}%
@@ -238,6 +238,28 @@ function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
               <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>vs mercado</div>
             </div>
           )}
+        </div>
+      )}
+      {isStrength && (
+        <div style={{
+          display: "flex", gap: 12, alignItems: "center",
+          padding: "8px 10px",
+          background: "rgba(0,0,0,0.04)",
+          borderRadius: 6,
+          marginTop: 2,
+        }}>
+          <div style={{ textAlign: "center" }}>
+            <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: accentColor, lineHeight: 1 }}>
+              {card.marketProb !== null ? `${Math.round(card.marketProb * 100)}%` : "—"}
+            </div>
+            <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>Cuota implícita</div>
+          </div>
+          <div style={{ marginLeft: "auto", textAlign: "right" }}>
+            <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: accentColor }}>
+              Confianza {card.confidence}
+            </div>
+            <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>señal IA</div>
+          </div>
         </div>
       )}
 
