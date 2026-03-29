@@ -50,21 +50,21 @@ def _resolve_from_polymarket(db: Session, match: Match) -> str | None:
     Check latest MarketSnapshot per outcome.
     If one outcome has prob > 0.95 the market is settled → that's the result.
     Returns "home", "draw", "away", or None.
-    """
-    latest: dict[str, float] = {}
-    rows = (
-        db.query(MarketSnapshot)
-        .filter(MarketSnapshot.match_id == match.id)
-        .order_by(desc(MarketSnapshot.snapshotted_at))
-        .limit(9)
-        .all()
-    )
-    for snap in rows:
-        if snap.outcome not in latest:
-            latest[snap.outcome] = snap.polymarket_prob
 
-    for outcome, prob in latest.items():
-        if prob >= RESOLUTION_THRESHOLD:
+    Queries per-outcome explicitly to avoid the limit(9) bug where all rows
+    could belong to a single outcome and the others remain unchecked.
+    """
+    for outcome in ("home", "draw", "away"):
+        snap = (
+            db.query(MarketSnapshot)
+            .filter(
+                MarketSnapshot.match_id == match.id,
+                MarketSnapshot.outcome == outcome,
+            )
+            .order_by(desc(MarketSnapshot.snapshotted_at))
+            .first()
+        )
+        if snap and snap.polymarket_prob >= RESOLUTION_THRESHOLD:
             return outcome
     return None
 
@@ -204,15 +204,28 @@ def resolve_match_results(db: Session) -> int:
         signal_type = signal.get("type")
         signal_side = signal.get("side")
 
+        VALID_SIDES = ("home", "draw", "away")
         if signal_type not in ("value", "strength") or not signal_side:
             logger.debug(
                 "Skip %s vs %s — IA signal is '%s' (not value/strength)",
                 match.home_team, match.away_team, signal_type,
             )
             continue
+        if signal_side not in VALID_SIDES:
+            logger.warning(
+                "Skip %s vs %s — invalid signal_side '%s' from LLM (expected home/draw/away)",
+                match.home_team, match.away_team, signal_side,
+            )
+            continue
 
-        # ── Gate 2: must have lineup data in the analysis ──────────────────
-        lineup_data_used = bool(analysis.get("lineup_data_used", False))
+        # ── Gate 2: must have lineup data (verify from actual DB data, not LLM self-report) ──
+        # Check match.lineup_data directly — the LLM's analysis_data.lineup_data_used is a
+        # self-report that the LLM could hallucinate True even if no lineup was provided.
+        actual_lineup_available = bool(
+            match.lineup_data and match.lineup_data.get("home_starters")
+        )
+        # Also accept analysis self-report as a secondary signal, but not alone
+        lineup_data_used = actual_lineup_available or bool(analysis.get("lineup_data_used", False))
         hours_since_kickoff = (now - match.kickoff_utc).total_seconds() / 3600
 
         if not lineup_data_used and hours_since_kickoff < 1.0:
