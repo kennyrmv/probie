@@ -288,8 +288,17 @@ function ModalLineupButton({
 
 // ── Outcome row inside modal ─────────────────────────────────────────────────
 
-function ModalOutcomeRow({ outcomes }: { outcomes: Outcome[] }) {
+function ModalOutcomeRow({
+  outcomes,
+  analysis,
+}: {
+  outcomes: Outcome[];
+  analysis: AnalysisData | null;
+}) {
   const LABEL: Record<string, string> = { home: "LOCAL", draw: "EMPATE", away: "VISITA" };
+  const aiSignal = analysis?.bet_signal;
+  // When there's an AI signal (value or strength), only that side gets the badge
+  const hasAiSignal = !!(aiSignal && aiSignal.type !== "none" && aiSignal.side);
 
   return (
     <div style={{
@@ -302,12 +311,33 @@ function ModalOutcomeRow({ outcomes }: { outcomes: Outcome[] }) {
         const hasAiAdj = o.ai_model_prob !== null && o.ai_model_prob !== undefined;
         const ourProb = hasAiAdj ? o.ai_model_prob! : o.model_prob;
         const bestDelta = hasAiAdj && o.ai_delta_pp !== null ? o.ai_delta_pp : o.delta_pp;
-        const isHigh = bestDelta !== null && bestDelta >= 10;
-        const isMid = bestDelta !== null && bestDelta >= 5 && !isHigh;
-        const isValue = isHigh || isMid;
-        const color = isHigh ? "var(--green)" : isMid ? "var(--amber)" : "var(--text)";
-        const borderColor = isHigh ? "var(--green)" : isMid ? "var(--amber)" : "var(--border)";
-        const bgColor = isHigh ? "#f0fdf4" : isMid ? "#fffbeb" : "var(--surface)";
+
+        // Determine highlight: AI signal takes precedence over raw model delta
+        const isAiPick = hasAiSignal && aiSignal!.side === o.outcome;
+        const isValueType = aiSignal?.type === "value";
+        const isStrengthType = aiSignal?.type === "strength";
+
+        // Model-based highlight only when no AI signal present
+        const modelIsHigh = !hasAiSignal && bestDelta !== null && bestDelta >= 10;
+        const modelIsMid  = !hasAiSignal && bestDelta !== null && bestDelta >= 5 && !modelIsHigh;
+
+        // Final highlight decision
+        const highlight = isAiPick || modelIsHigh || modelIsMid;
+        const color = isAiPick
+          ? (isStrengthType ? "#7c3aed" : "var(--green)")
+          : modelIsHigh ? "var(--green)" : modelIsMid ? "var(--amber)" : "var(--text)";
+        const borderColor = isAiPick
+          ? (isStrengthType ? "#a78bfa" : "var(--green)")
+          : modelIsHigh ? "var(--green)" : modelIsMid ? "var(--amber)" : "var(--border)";
+        const bgColor = isAiPick
+          ? (isStrengthType ? "#f5f3ff" : "#f0fdf4")
+          : modelIsHigh ? "#f0fdf4" : modelIsMid ? "#fffbeb" : "var(--surface)";
+
+        // Badge label
+        const badgeLabel = isAiPick
+          ? (isValueType ? "⚡ IA confirma valor" : "💪 IA recomienda")
+          : modelIsHigh ? "⚡ El mercado lo infravalora"
+          : "↑ Ligera ventaja";
 
         const inner = (
           <div style={{
@@ -322,11 +352,11 @@ function ModalOutcomeRow({ outcomes }: { outcomes: Outcome[] }) {
             <div className="mono" style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>
               {LABEL[o.outcome] || o.outcome}
             </div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: isValue ? color : "var(--text)", marginBottom: 4 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: highlight ? color : "var(--text)", marginBottom: 4 }}>
               {o.label}
             </div>
             <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
-              <span style={{ color: isValue ? color : "var(--text)", fontWeight: isValue ? 600 : 400 }}>
+              <span style={{ color: highlight ? color : "var(--text)", fontWeight: highlight ? 600 : 400 }}>
                 Nosotros {(ourProb * 100).toFixed(0)}%
               </span>
               {hasAiAdj && <span style={{ fontSize: 8, marginLeft: 2 }}>IA</span>}
@@ -334,9 +364,9 @@ function ModalOutcomeRow({ outcomes }: { outcomes: Outcome[] }) {
             <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
               Mercado {o.polymarket_prob !== null ? `${(o.polymarket_prob * 100).toFixed(0)}%` : "—"}
             </div>
-            {isValue && bestDelta !== null && (
+            {(isAiPick || modelIsHigh || modelIsMid) && (
               <div className="mono" style={{ fontSize: 10, color, fontWeight: 600, marginTop: 5 }}>
-                {isHigh ? "⚡ El mercado lo infravalora" : "↑ Ligera ventaja"}
+                {badgeLabel}
               </div>
             )}
           </div>
@@ -482,7 +512,7 @@ export default function MatchModal({
         <div style={{ padding: "20px 24px 24px" }}>
 
           {/* Outcome probabilities */}
-          <ModalOutcomeRow outcomes={match.outcomes} />
+          <ModalOutcomeRow outcomes={match.outcomes} analysis={analysis} />
 
           {/* Lineup */}
           {hasStarters && <ModalLineupPanel match={match} lineup={lineup!} />}

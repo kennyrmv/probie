@@ -209,7 +209,8 @@ function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
       </div>
 
       {/* Probabilidades — layout distinto según tipo de señal */}
-      {isValue && card.ourProb !== null && (
+      {isValue && card.ourProb !== null && card.marketProb !== null && card.ourProb > card.marketProb && (
+        // Caso clásico: nuestro modelo supera al mercado → mostramos comparativa
         <div style={{
           display: "flex", gap: 12, alignItems: "center",
           padding: "8px 10px",
@@ -226,18 +227,39 @@ function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
           <div style={{ fontSize: 16, color: "var(--muted)", fontWeight: 300 }}>vs</div>
           <div style={{ textAlign: "center" }}>
             <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: "var(--muted)", lineHeight: 1 }}>
-              {card.marketProb !== null ? `${Math.round(card.marketProb * 100)}%` : "—"}
+              {Math.round(card.marketProb * 100)}%
             </div>
             <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>Mercado</div>
           </div>
-          {card.marketProb !== null && (
-            <div style={{ marginLeft: "auto", textAlign: "right" }}>
-              <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: accentColor }}>
-                +{Math.round((card.ourProb - card.marketProb) * 100)}%
-              </div>
-              <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>vs mercado</div>
+          <div style={{ marginLeft: "auto", textAlign: "right" }}>
+            <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: accentColor }}>
+              +{Math.round((card.ourProb - card.marketProb) * 100)}%
             </div>
-          )}
+            <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>vs mercado</div>
+          </div>
+        </div>
+      )}
+      {isValue && (card.ourProb === null || card.marketProb === null || card.ourProb <= card.marketProb) && (
+        // Caso AI-override: el modelo base no refleja bien este partido → mostramos cuota + confianza
+        <div style={{
+          display: "flex", gap: 12, alignItems: "center",
+          padding: "8px 10px",
+          background: "rgba(0,0,0,0.04)",
+          borderRadius: 6,
+          marginTop: 2,
+        }}>
+          <div style={{ textAlign: "center" }}>
+            <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: accentColor, lineHeight: 1 }}>
+              {card.marketProb !== null ? `${Math.round(card.marketProb * 100)}%` : "—"}
+            </div>
+            <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>Cuota implícita</div>
+          </div>
+          <div style={{ marginLeft: "auto", textAlign: "right" }}>
+            <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: accentColor }}>
+              Confianza {card.confidence}
+            </div>
+            <div style={{ fontSize: 9, color: "var(--muted)", marginTop: 2 }}>señal IA</div>
+          </div>
         </div>
       )}
       {isStrength && (
