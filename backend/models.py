@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, DateTime, Float, ForeignKey, Index, String, Text, Integer
+    Boolean, Column, DateTime, Float, ForeignKey, Index, String, Text, Integer
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -134,17 +134,33 @@ class HistoricalMatch(Base):
 
 class CalibrationLog(Base):
     """
-    Tracks prediction accuracy over time.
-    Each row: one prediction + actual result after the match finishes.
+    Tracks prediction accuracy + CLV over time.
+    Each row: one prediction + actual result + closing-line value after the match finishes.
+
+    CLV (Closing Line Value): measures whether Polymarket odds moved toward our model's
+    prediction between signal time and kickoff. Positive CLV = model was right early.
     """
     __tablename__ = "calibration_log"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     prediction_id = Column(UUID(as_uuid=True), ForeignKey("predictions.id"), nullable=False)
-    actual_result = Column(String(10), nullable=False)  # "home" | "draw" | "away"
+    actual_result = Column(String(10), nullable=False)   # "home" | "draw" | "away"
     resolved_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Signal metadata
+    signal_outcome = Column(String(10), nullable=True)   # which outcome the IA flagged (home/draw/away)
+    signal_source = Column(String(10), nullable=True)    # "edge" (value) | "fuerza" (strength)
+    signal_tier = Column(String(10), nullable=True)      # math tier at time of signal: "high" | "mid" | "none"
+    model_prob = Column(Float, nullable=True)            # model prob for signal_outcome
+    lineup_confirmed = Column(Boolean, nullable=True)    # True if analysis ran with confirmed XI
+
+    # CLV fields — populated by resolve_match_results() job
+    entry_poly_prob = Column(Float, nullable=True)       # poly price when signal first fired
+    closing_poly_prob = Column(Float, nullable=True)     # poly price at last snapshot before kickoff
+    clv_pp = Column(Float, nullable=True)                # (closing - entry) * 100  >0 = good
 
     prediction = relationship("Prediction")
 
     def __repr__(self) -> str:
-        return f"<CalibrationLog prediction={self.prediction_id} actual={self.actual_result}>"
+        clv_str = f" CLV={self.clv_pp:+.1f}pp" if self.clv_pp is not None else ""
+        return f"<CalibrationLog prediction={self.prediction_id} actual={self.actual_result}{clv_str}>"

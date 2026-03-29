@@ -115,6 +115,13 @@ export default function Header({ lastUpdated }: { lastUpdated: Date | null }) {
           </select>
 
           <Link
+            href="/performance"
+            style={{ fontSize: 11, color: "var(--muted)", textDecoration: "none", fontFamily: "var(--mono)" }}
+          >
+            Performance →
+          </Link>
+
+          <Link
             href="/bankroll"
             style={{ fontSize: 11, color: "var(--muted)", textDecoration: "none", fontFamily: "var(--mono)" }}
           >

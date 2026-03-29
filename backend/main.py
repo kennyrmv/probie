@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.routes import router
 from database import SessionLocal, check_db_connection
 from pipeline.pipeline import run_daily_pipeline, run_refresh_pipeline, seed_historical_data
+from pipeline.performance import resolve_match_results
 from api.routes import _run_analysis_and_store
 
 logging.basicConfig(
@@ -142,6 +143,12 @@ scheduler.add_job(
     id="refresh_pipeline",
 )
 
+def _resolve_results_job():
+    with SessionLocal() as db:
+        resolve_match_results(db)
+        db.commit()
+
+
 # Every 5 min — auto-fetch confirmed lineups for matches kicking off in ≤35 min
 # API-Football publishes lineups ~60min before kickoff, this catches them automatically
 scheduler.add_job(
@@ -149,6 +156,14 @@ scheduler.add_job(
     "cron",
     minute="*/5",
     id="auto_lineup",
+)
+
+# Every hour — resolve finished match results + compute CLV
+scheduler.add_job(
+    _resolve_results_job,
+    "cron",
+    minute=10,  # offset from other jobs to spread load
+    id="resolve_results",
 )
 
 

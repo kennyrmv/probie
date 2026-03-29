@@ -448,6 +448,37 @@ def fetch_today_fixtures(
         raise FootballDataAPIError(f"football-data.org network error: {exc}") from exc
 
 
+def fetch_results_for_date(
+    date: str,
+    competition_codes: list[str] | None = None,
+    api_key: str | None = None,
+) -> list[dict]:
+    """
+    Fetch finished matches for a given date from football-data.org.
+    date: ISO format "YYYY-MM-DD"
+    Returns list of match dicts. Empty list if none found or API unavailable.
+    """
+    key = api_key or os.environ.get("FOOTBALL_DATA_API_KEY", "")
+    headers = {"X-Auth-Token": key} if key else {}
+    url = f"{FOOTBALL_DATA_BASE}/matches"
+    params: dict = {"dateFrom": date, "dateTo": date, "status": "FINISHED"}
+    if competition_codes:
+        params["competitions"] = ",".join(competition_codes)
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, params=params, headers=headers)
+        if resp.status_code != 200:
+            raise FootballDataAPIError(
+                f"football-data.org returned {resp.status_code}: {resp.text[:200]}"
+            )
+        return resp.json().get("matches", [])
+    except httpx.TimeoutException as exc:
+        raise FootballDataAPIError("football-data.org timed out") from exc
+    except httpx.RequestError as exc:
+        raise FootballDataAPIError(f"football-data.org network error: {exc}") from exc
+
+
 def fetch_historical_matches(
     competition_code: str,
     season: int,

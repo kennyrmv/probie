@@ -304,6 +304,160 @@ def admin_seed():
     return {"status": "ok", "message": "Seed complete"}
 
 
+@router.post("/api/admin/resolve-results")
+def admin_resolve_results():
+    """Manually trigger the match result resolution + CLV computation job."""
+    from pipeline.performance import resolve_match_results
+    with SessionLocal() as db:
+        n = resolve_match_results(db)
+        db.commit()
+    return {"status": "ok", "resolved": n}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Performance dashboard
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/api/performance")
+def get_performance(db: Session = Depends(get_db)):
+    """
+    Model performance metrics computed from CalibrationLog.
+
+    Returns:
+      - total_signals: how many edge signals have been emitted and resolved
+      - win_rate: fraction where signal_outcome == actual_result
+      - avg_clv_pp: average CLV in percentage points (>0 = model is sharp)
+      - brier_model: Brier score for Dixon-Coles predictions (lower = better)
+      - brier_market: Brier score using Polymarket entry price (compare to model)
+      - roi_simulation: simulated ROI if betting flat 1 unit on every signal
+      - by_source: breakdown by signal type — "edge" (⚡ Edge confirmado) vs "fuerza" (💪 Apuesta de fuerza)
+      - recent: last 20 resolved signals for the table
+    """
+    from models import CalibrationLog, Prediction
+    from sqlalchemy import func as sqlfunc
+
+    try:
+        logs = (
+            db.query(CalibrationLog)
+            .join(Prediction, Prediction.id == CalibrationLog.prediction_id)
+            .filter(CalibrationLog.signal_outcome.isnot(None))
+            .order_by(desc(CalibrationLog.resolved_at))
+            .all()
+        )
+
+        if not logs:
+            return {
+                "total_signals": 0,
+                "win_rate": None,
+                "avg_clv_pp": None,
+                "brier_model": None,
+                "brier_market": None,
+                "roi_simulation": None,
+                "by_source": {"edge": _empty_tier(), "fuerza": _empty_tier()},
+                "recent": [],
+            }
+
+        # ── Global metrics ──────────────────────────────────────────────────
+        total = len(logs)
+        wins = sum(1 for l in logs if l.signal_outcome == l.actual_result)
+        win_rate = round(wins / total, 4) if total else None
+
+        # CLV
+        clv_logs = [l for l in logs if l.clv_pp is not None]
+        avg_clv = round(sum(l.clv_pp for l in clv_logs) / len(clv_logs), 2) if clv_logs else None
+
+        # Brier scores — only rows where we have both model_prob and entry_poly_prob
+        brier_logs = [l for l in logs if l.model_prob is not None and l.entry_poly_prob is not None]
+        if brier_logs:
+            model_brier = round(
+                sum(
+                    (l.model_prob - (1.0 if l.signal_outcome == l.actual_result else 0.0)) ** 2
+                    for l in brier_logs
+                ) / len(brier_logs),
+                4,
+            )
+            market_brier = round(
+                sum(
+                    (l.entry_poly_prob - (1.0 if l.signal_outcome == l.actual_result else 0.0)) ** 2
+                    for l in brier_logs
+                ) / len(brier_logs),
+                4,
+            )
+        else:
+            model_brier = None
+            market_brier = None
+
+        # ROI simulation — flat 1 unit per signal, decimal odds = 1/entry_poly_prob
+        roi_logs = [l for l in logs if l.entry_poly_prob and l.entry_poly_prob > 0.01]
+        if roi_logs:
+            total_staked = len(roi_logs)
+            total_return = sum(
+                (1.0 / l.entry_poly_prob) if l.signal_outcome == l.actual_result else 0.0
+                for l in roi_logs
+            )
+            roi_pct = round((total_return - total_staked) / total_staked * 100, 2)
+        else:
+            roi_pct = None
+
+        # ── By signal source ────────────────────────────────────────────────
+        by_source = {
+            "edge":   _compute_tier_stats([l for l in logs if l.signal_source == "edge"]),
+            "fuerza": _compute_tier_stats([l for l in logs if l.signal_source == "fuerza"]),
+        }
+
+        # ── Recent 20 ───────────────────────────────────────────────────────
+        recent = []
+        for l in logs[:20]:
+            pred = db.query(Prediction).filter(Prediction.id == l.prediction_id).first()
+            match = db.query(Match).filter(Match.id == pred.match_id).first() if pred else None
+            recent.append({
+                "match": f"{match.home_team} vs {match.away_team}" if match else "—",
+                "kickoff": match.kickoff_utc.isoformat() if match else None,
+                "signal_outcome": l.signal_outcome,
+                "actual_result": l.actual_result,
+                "hit": l.signal_outcome == l.actual_result,
+                "signal_source": l.signal_source,
+                "lineup_confirmed": l.lineup_confirmed,
+                "model_prob": round(l.model_prob, 3) if l.model_prob else None,
+                "entry_poly_prob": round(l.entry_poly_prob, 3) if l.entry_poly_prob else None,
+                "closing_poly_prob": round(l.closing_poly_prob, 3) if l.closing_poly_prob else None,
+                "clv_pp": round(l.clv_pp, 1) if l.clv_pp is not None else None,
+                "resolved_at": l.resolved_at.isoformat(),
+            })
+
+        return {
+            "total_signals": total,
+            "win_rate": win_rate,
+            "avg_clv_pp": avg_clv,
+            "brier_model": model_brier,
+            "brier_market": market_brier,
+            "roi_simulation": roi_pct,
+            "by_source": by_source,
+            "recent": recent,
+        }
+
+    except Exception as exc:
+        logger.error("GET /api/performance failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Performance data unavailable")
+
+
+def _empty_tier() -> dict:
+    return {"signals": 0, "win_rate": None, "avg_clv_pp": None}
+
+
+def _compute_tier_stats(logs: list) -> dict:
+    if not logs:
+        return _empty_tier()
+    wins = sum(1 for l in logs if l.signal_outcome == l.actual_result)
+    clv_logs = [l for l in logs if l.clv_pp is not None]
+    return {
+        "signals": len(logs),
+        "win_rate": round(wins / len(logs), 4),
+        "avg_clv_pp": round(sum(l.clv_pp for l in clv_logs) / len(clv_logs), 2) if clv_logs else None,
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
