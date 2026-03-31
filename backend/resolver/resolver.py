@@ -196,6 +196,18 @@ def fetch_polymarket_events(
 
             events = [e for e in events if _is_upcoming(e)]
 
+            # Filter out women's competitions by slug/title keywords
+            _WOMEN_KEYWORDS = ("women", "femenin", "ladies", "nwsl", "wsl", "uwcl", "woman")
+            def _is_mens(e: dict) -> bool:
+                slug  = (e.get("slug") or "").lower()
+                title = (e.get("title") or "").lower()
+                return not any(kw in slug or kw in title for kw in _WOMEN_KEYWORDS)
+
+            before = len(events)
+            events = [e for e in events if _is_mens(e)]
+            if before != len(events):
+                logger.debug("Filtered %d women's competition events", before - len(events))
+
             logger.info(
                 "Fetched %d Polymarket soccer match events (tag=%s, upcoming only)",
                 len(events), tag_slug,

@@ -403,12 +403,38 @@ def update_match_scores(db: Session) -> int:
         .all()
     )
 
+    # Pre-fetch ESPN results grouped by date (one request per date, not per match)
+    from collections import defaultdict
+    espn_by_date: dict[str, list] = {}
+
+    def _get_espn_for_date(date_str: str) -> list:
+        if date_str not in espn_by_date:
+            try:
+                espn_by_date[date_str] = fetch_results_from_espn(date_str)
+            except Exception:
+                espn_by_date[date_str] = []
+        return espn_by_date[date_str]
+
     updated = 0
     for match in unresolved:
-        fd = _resolve_from_football_data(match, api_key)
-        if not fd:
+        date_str = match.kickoff_utc.date().isoformat()
+        home_norm = normalize_team_name(match.home_team)
+        away_norm = normalize_team_name(match.away_team)
+
+        # Try ESPN cache first
+        espn_results = _get_espn_for_date(date_str)
+        result = _match_score_in_results(espn_results, home_norm, away_norm)
+
+        if not result and api_key:
+            try:
+                fd_results = fetch_results_for_date(date_str, api_key=api_key)
+                result = _match_score_in_results(fd_results, home_norm, away_norm)
+            except FootballDataAPIError:
+                pass
+
+        if not result:
             continue
-        actual_result, home_goals, away_goals = fd
+        actual_result, home_goals, away_goals = result
         match.home_score = home_goals
         match.away_score = away_goals
         match.match_status = "finished"

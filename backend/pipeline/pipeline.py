@@ -186,11 +186,12 @@ def fit_dixon_coles(db: Session) -> pb.models.DixonColesGoalModel:
     if df.empty:
         raise ValueError("No historical data available to fit Dixon-Coles model")
 
+    import numpy as np
     model = pb.models.DixonColesGoalModel(
-        goals_home=df["home_goals"],
-        goals_away=df["away_goals"],
-        teams_home=df["home_team"],
-        teams_away=df["away_team"],
+        goals_home=np.array(df["home_goals"], copy=True),
+        goals_away=np.array(df["away_goals"], copy=True),
+        teams_home=df["home_team"].tolist(),
+        teams_away=df["away_team"].tolist(),
     )
     model.fit()
     logger.info(
