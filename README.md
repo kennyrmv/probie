@@ -133,7 +133,7 @@ CORS_ORIGINS              — Allowed CORS origins
 - `predictions` — immutable model output, one per match per run
 - `market_snapshots` — append-only Polymarket odds, one row per outcome per 15-min refresh
 - `historical_matches` — seeded from football-data.org, used to calibrate Dixon-Coles
-- `calibration_log` — prediction vs actual result for accuracy tracking
+- `calibration_log` — AI signal tracking: records ⚡ Edge confirmado and 💪 Apuesta de fuerza signals with actual result, Market Drift (closing vs entry Polymarket price), Brier scores, and ROI simulation data
 
 ### Scheduler (APScheduler, UTC)
 
@@ -142,6 +142,17 @@ CORS_ORIGINS              — Allowed CORS origins
 | 06:00 + 14:00 daily | Fetch fixtures, run Dixon-Coles, store predictions |
 | Every 15 min (08:00–22:00) | Refresh Polymarket odds snapshots |
 | Every 5 min | Auto-fetch lineups when available |
+| Every hour (at :10) | Resolve finished match results + compute Market Drift for AI signals |
+
+### Performance Dashboard
+
+`GET /api/performance` (frontend: `/performance`) — tracks model accuracy on AI-confirmed signals only:
+
+- **Win rate** — % of signals where predicted outcome was correct
+- **Market Drift** — did Polymarket odds move toward our prediction before kickoff? Positive = model was early and right
+- **Brier Score** — Dixon-Coles vs Polymarket calibration comparison
+- **ROI simulation** — flat-unit simulation at entry prices
+- **By signal type** — ⚡ Edge confirmado vs 💪 Apuesta de fuerza breakdown
 
 ---
 

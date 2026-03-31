@@ -4,6 +4,40 @@ import { useEffect, useState, useCallback } from "react";
 import Header from "./components/Header";
 import MatchCard from "./components/MatchCard";
 import type { AnalysisData } from "./components/AnalysisPanel";
+import { useTimezone } from "./context/TimezoneContext";
+
+function groupByDate(matches: Match[], tz: string): [string, Match[]][] {
+  const map: Record<string, Match[]> = {};
+  const order: string[] = [];
+  for (const m of matches) {
+    const key = new Date(m.kickoff).toLocaleDateString("es", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    if (!map[key]) { map[key] = []; order.push(key); }
+    map[key].push(m);
+  }
+  return order.map(k => [k, map[k]]);
+}
+
+function getDateLabel(kickoffISO: string, tz: string): string {
+  const d = new Date(kickoffISO);
+  const toKey = (date: Date) => date.toLocaleDateString("es", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  const matchKey = toKey(d);
+  const todayKey = toKey(new Date());
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowKey = toKey(tomorrow);
+  const formatted = d.toLocaleDateString("es", {
+    timeZone: tz, weekday: "long", day: "numeric", month: "long",
+  });
+  if (matchKey === todayKey) return `Partidos de hoy · ${formatted}`;
+  if (matchKey === tomorrowKey) return `Mañana · ${formatted}`;
+  return formatted;
+}
 
 function getKellyAmount(
   bankroll: number,
@@ -197,7 +231,7 @@ function BetCardBox({ card, bankroll }: { card: BetCard; bankroll: number }) {
     }}>
       {/* Tipo de señal */}
       <span className="mono" style={{ fontSize: 9, color: accentColor, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-        {isValue ? "⚡ Edge de mercado" : "💪 Apuesta de fuerza"}
+        {isValue ? "Edge de mercado" : "Apuesta de fuerza"}
       </span>
 
       {/* Resultado recomendado */}
@@ -384,6 +418,7 @@ function SkeletonCard() {
 const REFRESH_INTERVAL = 5 * 60 * 1000;
 
 export default function HomePage() {
+  const { tz } = useTimezone();
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -419,17 +454,16 @@ export default function HomePage() {
   }, [fetchMatches]);
 
   const scheduled = matches.filter(m => getMatchState(m.kickoff, m.match_status) === "scheduled");
-  const liveOrFinished = matches.filter(m => getMatchState(m.kickoff, m.match_status) !== "scheduled");
+  const live = matches.filter(m => getMatchState(m.kickoff, m.match_status) === "live");
+  const finished = matches.filter(m => getMatchState(m.kickoff, m.match_status) === "finished");
+  const liveOrFinished = [...live, ...finished];
 
-  const highValue = scheduled.filter(m => m.best_value_tier === "high");
-  const midValue  = scheduled.filter(m => m.best_value_tier === "mid");
-  const noValue   = scheduled.filter(m => m.best_value_tier !== "high" && m.best_value_tier !== "mid");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <Header lastUpdated={lastUpdated} />
 
-      <main style={{ flex: 1, maxWidth: 860, width: "100%", margin: "0 auto", padding: "24px 20px 48px" }}>
+      <main style={{ flex: 1, maxWidth: 820, width: "100%", margin: "0 auto", padding: "28px 24px 56px" }}>
 
         {/* Error state */}
         {error && (
@@ -464,70 +498,42 @@ export default function HomePage() {
 
         {/* Match sections */}
         {!loading && matches.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
 
             <VeredictoDia matches={matches} bankroll={bankroll} />
 
-            {highValue.length > 0 && (
+            {/* Live matches */}
+            {live.length > 0 && (
               <section>
-                <p className="mono" style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
-                  Discrepancia alta con mercado · {highValue.length} {highValue.length === 1 ? "partido" : "partidos"}
+                <p className="mono" style={{ fontSize: 10, color: "#dc2626", marginBottom: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  En juego · {live.length} {live.length === 1 ? "partido" : "partidos"}
                 </p>
-                <p style={{ fontSize: 10, color: "var(--muted)", marginBottom: 10, opacity: 0.7 }}>
-                  El modelo matemático detecta diferencia alta. Analiza cada partido para ver si la IA lo confirma.
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {highValue.map((m, i) => (
-                    <MatchCard key={m.id} match={m} delay={i * 50} />
-                  ))}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {live.map((m, i) => <MatchCard key={m.id} match={m} delay={i * 50} />)}
                 </div>
               </section>
             )}
 
-            {midValue.length > 0 && (
-              <section>
-                <p className="mono" style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
-                  Discrepancia media con mercado · {midValue.length} {midValue.length === 1 ? "partido" : "partidos"}
+            {/* Scheduled matches grouped by date */}
+            {groupByDate(scheduled, tz).map(([dateKey, dateMatches]) => (
+              <section key={dateKey}>
+                <p className="mono" style={{ fontSize: 10, color: "var(--muted)", marginBottom: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  {getDateLabel(dateMatches[0].kickoff, tz)}
                 </p>
-                <p style={{ fontSize: 10, color: "var(--muted)", marginBottom: 10, opacity: 0.7 }}>
-                  El modelo detecta diferencia moderada. Analiza para confirmar.
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {midValue.map((m, i) => (
-                    <MatchCard key={m.id} match={m} delay={i * 50} />
-                  ))}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {dateMatches.map((m, i) => <MatchCard key={m.id} match={m} delay={i * 50} />)}
                 </div>
               </section>
-            )}
+            ))}
 
-            {noValue.length > 0 && (
+            {/* Finished matches */}
+            {finished.length > 0 && (
               <section>
-                <p
-                  className="mono"
-                  style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10 }}
-                >
-                  Sin edge · {noValue.length} {noValue.length === 1 ? "partido" : "partidos"}
+                <p className="mono" style={{ fontSize: 10, color: "var(--muted)", marginBottom: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  Resultados · {finished.length} {finished.length === 1 ? "partido" : "partidos"}
                 </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {noValue.map((m, i) => (
-                    <MatchCard key={m.id} match={m} delay={i * 50} />
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {liveOrFinished.length > 0 && (
-              <section>
-                <p
-                  className="mono"
-                  style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10 }}
-                >
-                  En curso / finalizados · {liveOrFinished.length} {liveOrFinished.length === 1 ? "partido" : "partidos"}
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {liveOrFinished.map((m, i) => (
-                    <MatchCard key={m.id} match={m} delay={i * 50} />
-                  ))}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {finished.map((m, i) => <MatchCard key={m.id} match={m} delay={i * 50} />)}
                 </div>
               </section>
             )}

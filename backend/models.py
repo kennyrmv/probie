@@ -9,7 +9,8 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, DateTime, Float, ForeignKey, Index, String, Text, Integer
+    Boolean, Column, Date, DateTime, Float, ForeignKey, Index, String, Text, Integer,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -134,17 +135,61 @@ class HistoricalMatch(Base):
 
 class CalibrationLog(Base):
     """
-    Tracks prediction accuracy over time.
-    Each row: one prediction + actual result after the match finishes.
+    Tracks prediction accuracy + CLV over time.
+    Each row: one prediction + actual result + closing-line value after the match finishes.
+
+    CLV (Closing Line Value): measures whether Polymarket odds moved toward our model's
+    prediction between signal time and kickoff. Positive CLV = model was right early.
     """
     __tablename__ = "calibration_log"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     prediction_id = Column(UUID(as_uuid=True), ForeignKey("predictions.id"), nullable=False)
-    actual_result = Column(String(10), nullable=False)  # "home" | "draw" | "away"
+    actual_result = Column(String(10), nullable=False)   # "home" | "draw" | "away"
     resolved_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Signal metadata
+    signal_outcome = Column(String(10), nullable=True)   # which outcome the IA flagged (home/draw/away)
+    signal_source = Column(String(10), nullable=True)    # "edge" (value) | "fuerza" (strength)
+    signal_tier = Column(String(10), nullable=True)      # math tier at time of signal: "high" | "mid" | "none"
+    model_prob = Column(Float, nullable=True)            # model prob for signal_outcome
+    lineup_confirmed = Column(Boolean, nullable=True)    # True if analysis ran with confirmed XI
+
+    # CLV fields — populated by resolve_match_results() job
+    entry_poly_prob = Column(Float, nullable=True)       # poly price when signal first fired
+    closing_poly_prob = Column(Float, nullable=True)     # poly price at last snapshot before kickoff
+    clv_pp = Column(Float, nullable=True)                # (closing - entry) * 100  >0 = good
+
+    # Pick weight — True if this signal was the day's top pick (Veredicto del día)
+    is_top_pick = Column(Boolean, nullable=True)         # True = full unit; None/False = half unit
 
     prediction = relationship("Prediction")
 
     def __repr__(self) -> str:
-        return f"<CalibrationLog prediction={self.prediction_id} actual={self.actual_result}>"
+        clv_str = f" CLV={self.clv_pp:+.1f}pp" if self.clv_pp is not None else ""
+        pick_str = " 🏆" if self.is_top_pick else ""
+        return f"<CalibrationLog prediction={self.prediction_id} actual={self.actual_result}{clv_str}{pick_str}>"
+
+
+class DailyPick(Base):
+    """
+    Persists the day's top Veredictos del día — mirrors frontend pickBestBets() logic.
+    One value pick + one strength pick per day, saved at 09:30 and 14:30 UTC.
+    Used to weight CalibrationLog entries: top picks = 1.0 unit, secondary = 0.5 unit.
+    """
+    __tablename__ = "daily_picks"
+    __table_args__ = (
+        UniqueConstraint("date", "pick_type", name="uq_daily_picks_date_type"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    date = Column(Date, nullable=False)
+    match_id = Column(UUID(as_uuid=True), ForeignKey("matches.id"), nullable=False)
+    pick_type = Column(String(10), nullable=False)   # "value" | "strength"
+    signal_side = Column(String(10), nullable=True)  # "home" | "draw" | "away"
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    match = relationship("Match")
+
+    def __repr__(self) -> str:
+        return f"<DailyPick {self.date} {self.pick_type} match={self.match_id} side={self.signal_side}>"

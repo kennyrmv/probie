@@ -200,11 +200,12 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
               <TeamFlag team={match.home_team} size={22} />
               <span style={{
                 fontSize: 14,
-                fontWeight: 600,
+                fontWeight: isFinished && match.home_score !== null && match.away_score !== null && match.home_score > match.away_score ? 700 : 600,
                 color: "var(--text)",
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
+                flex: 1,
               }}>
                 {match.home_team}
               </span>
@@ -221,9 +222,16 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                   flexShrink: 0,
                 }}>● LIVE</span>
               )}
-              {isFinished && match.home_score !== null && match.away_score !== null && (
-                <span className="mono" style={{ fontSize: 11, color: "var(--muted)", flexShrink: 0 }}>
-                  {match.home_score}–{match.away_score}
+              {isFinished && match.home_score !== null && (
+                <span className="mono" style={{
+                  fontSize: 16,
+                  fontWeight: match.home_score > (match.away_score ?? -1) ? 700 : 400,
+                  color: match.home_score > (match.away_score ?? -1) ? "var(--text)" : "var(--muted)",
+                  flexShrink: 0,
+                  minWidth: 18,
+                  textAlign: "right",
+                }}>
+                  {match.home_score}
                 </span>
               )}
             </div>
@@ -232,21 +240,41 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
               <TeamFlag team={match.away_team} size={22} />
               <span style={{
                 fontSize: 13,
-                fontWeight: 400,
-                color: "var(--muted)",
+                fontWeight: isFinished && match.home_score !== null && match.away_score !== null && match.away_score > match.home_score ? 600 : 400,
+                color: isFinished && match.home_score !== null && match.away_score !== null && match.away_score > match.home_score ? "var(--text)" : "var(--muted)",
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
+                flex: 1,
               }}>
                 {match.away_team}
               </span>
+              {isFinished && match.away_score !== null && (
+                <span className="mono" style={{
+                  fontSize: 16,
+                  fontWeight: match.away_score > (match.home_score ?? -1) ? 700 : 400,
+                  color: match.away_score > (match.home_score ?? -1) ? "var(--text)" : "var(--muted)",
+                  flexShrink: 0,
+                  minWidth: 18,
+                  textAlign: "right",
+                }}>
+                  {match.away_score}
+                </span>
+              )}
             </div>
             {/* Competition + badges */}
             <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
               <span className="mono" style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                 {match.competition}
               </span>
-              {hasLineup && (
+              {isFinished && (
+                <span className="mono" style={{
+                  fontSize: 8, background: "var(--bg, #f9fafb)", color: "var(--muted)",
+                  padding: "1px 5px", borderRadius: 3, fontWeight: 600,
+                  border: "1px solid var(--border)",
+                }}>FIN</span>
+              )}
+              {hasLineup && !isFinished && (
                 <span className="mono" style={{
                   fontSize: 8, background: "#f0fdf4", color: "var(--green)",
                   padding: "1px 5px", borderRadius: 3, fontWeight: 600,
@@ -259,11 +287,11 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                   color: analysis!.bet_signal!.type === "value" ? "var(--green)" : "var(--amber)",
                   padding: "1px 5px", borderRadius: 3, fontWeight: 600,
                 }}>
-                  {analysis!.bet_signal!.type === "value" ? "⚡ Analizado" : "✓ Analizado"}
+                  Analizado
                 </span>
               )}
               {prior && !analysis && (
-                <span className="mono" style={{ fontSize: 8, color: "var(--amber)" }}>⚠ priors</span>
+                <span className="mono" style={{ fontSize: 8, color: "var(--amber)" }}>priors</span>
               )}
             </div>
           </div>
@@ -277,10 +305,43 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
 
           {/* ── Right: time + edge badge ── */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
-            <span className="mono" style={{ fontSize: 12, color: "var(--text)", fontWeight: 500 }}>
+            <span className="mono" style={{
+              fontSize: 12,
+              color: isFinished ? "var(--muted)" : "var(--text)",
+              fontWeight: 500,
+              textDecoration: isFinished ? "none" : "none",
+            }}>
               {formatInTz(match.kickoff, tz)}
             </span>
             {(() => {
+              // Finished: show signal result if known, otherwise nothing
+              if (isFinished) {
+                const aiSignal = analysis?.bet_signal;
+                if (aiSignal && aiSignal.type !== "none" && aiSignal.side) {
+                  const hit = match.home_score !== null && match.away_score !== null && (() => {
+                    const hg = match.home_score!, ag = match.away_score!;
+                    const actual = hg > ag ? "home" : ag > hg ? "away" : "draw";
+                    return actual === aiSignal.side;
+                  })();
+                  const scoreKnown = match.home_score !== null;
+                  if (scoreKnown) {
+                    return (
+                      <span style={{
+                        fontSize: 10, fontFamily: "var(--mono)", fontWeight: 600,
+                        color: hit ? "var(--green, #16a34a)" : "var(--red, #dc2626)",
+                        background: hit ? "#f0fdf4" : "#fef2f2",
+                        border: `1px solid ${hit ? "var(--green, #16a34a)" : "var(--red, #dc2626)"}`,
+                        borderRadius: 6, padding: "2px 8px",
+                      }}>
+                        {hit ? "✓ Acertó" : "✗ Falló"}
+                      </span>
+                    );
+                  }
+                }
+                return null;
+              }
+            })()}
+            {!isFinished && (() => {
               const aiSignal = analysis?.bet_signal?.type;
               // IA analizó y confirmó → badge positivo
               if (showEdge && aiSignal === "value") {
@@ -291,7 +352,7 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                     border: "1px solid var(--green)",
                     borderRadius: 6, padding: "2px 8px", letterSpacing: "0.02em",
                   }}>
-                    ⚡ Edge confirmado
+                    Edge confirmado
                   </span>
                 );
               }
@@ -303,7 +364,7 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                     border: "1px solid #a78bfa",
                     borderRadius: 6, padding: "2px 8px", letterSpacing: "0.02em",
                   }}>
-                    💪 Apuesta de fuerza
+                    Apuesta de fuerza
                   </span>
                 );
               }
@@ -329,7 +390,7 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                     border: `1px dashed ${edgeBorder}`,
                     borderRadius: 6, padding: "2px 8px", letterSpacing: "0.02em",
                   }}>
-                    {isHigh ? "⚡ Sin analizar" : "↑ Sin analizar"}
+                    Sin analizar
                   </span>
                 );
               }

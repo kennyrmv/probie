@@ -367,6 +367,8 @@ def fetch_today_from_polymarket(
 
         ALLOWED_TAG_TO_COMP = {
             "fifa-friendly":        "FIFA Friendly",
+            "fifa-world-cup":       "FIFA World Cup Qualifying",
+            "world-cup":            "FIFA World Cup Qualifying",
             "EPL":                  "Premier League",
             "premier-league":       "Premier League",
             "la-liga":              "La Liga",
@@ -378,7 +380,6 @@ def fetch_today_from_polymarket(
             "europa-league":        "UEFA Europa League",
             "uel":                  "UEFA Europa League",
             "efl-championship":     "EFL Championship",
-            "womens-champions-league": "UEFA Women's CL",
         }
 
         competition = next(
@@ -442,6 +443,96 @@ def fetch_today_fixtures(
         matches = data.get("matches", [])
         logger.info("Fetched %d fixtures for today (%s)", len(matches), today)
         return matches
+    except httpx.TimeoutException as exc:
+        raise FootballDataAPIError("football-data.org timed out") from exc
+    except httpx.RequestError as exc:
+        raise FootballDataAPIError(f"football-data.org network error: {exc}") from exc
+
+
+def fetch_results_from_espn(date: str) -> list[dict]:
+    """
+    Fetch finished match results from ESPN's public API (no key required).
+    Covers ALL competitions: international friendlies, domestic leagues, cups, etc.
+    ESPN is the primary results source — football-data.org is the fallback.
+
+    date: ISO format "YYYY-MM-DD"
+    Returns list of dicts with keys: homeTeam, awayTeam, homeScore, awayScore
+    Raises FootballDataAPIError on network failure.
+    """
+    date_compact = date.replace("-", "")  # ESPN uses YYYYMMDD
+    url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard"
+    params = {"dates": date_compact, "limit": 200}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, params=params, headers=headers)
+        if resp.status_code != 200:
+            raise FootballDataAPIError(f"ESPN API returned {resp.status_code}")
+
+        results = []
+        for event in resp.json().get("events", []):
+            for comp in event.get("competitions", []):
+                if not comp.get("status", {}).get("type", {}).get("completed"):
+                    continue
+                teams = {t["homeAway"]: t for t in comp.get("competitors", [])}
+                home = teams.get("home", {})
+                away = teams.get("away", {})
+                home_name = home.get("team", {}).get("displayName", "")
+                away_name = away.get("team", {}).get("displayName", "")
+                home_score = home.get("score")
+                away_score = away.get("score")
+                if home_name and away_name and home_score is not None:
+                    results.append({
+                        "homeTeam": {"name": home_name},
+                        "awayTeam": {"name": away_name},
+                        "score": {
+                            "fullTime": {
+                                "home": int(home_score),
+                                "away": int(away_score),
+                            }
+                        },
+                    })
+
+        logger.info("ESPN: fetched %d finished matches for %s", len(results), date)
+        return results
+
+    except FootballDataAPIError:
+        raise
+    except httpx.TimeoutException as exc:
+        raise FootballDataAPIError("ESPN API timed out") from exc
+    except httpx.RequestError as exc:
+        raise FootballDataAPIError(f"ESPN API network error: {exc}") from exc
+
+
+def fetch_results_for_date(
+    date: str,
+    competition_codes: list[str] | None = None,
+    api_key: str | None = None,
+) -> list[dict]:
+    """
+    Fetch finished matches for a given date from football-data.org.
+    date: ISO format "YYYY-MM-DD"
+    Returns list of match dicts. Empty list if none found or API unavailable.
+    """
+    key = api_key or os.environ.get("FOOTBALL_DATA_API_KEY", "")
+    headers = {"X-Auth-Token": key} if key else {}
+    url = f"{FOOTBALL_DATA_BASE}/matches"
+    params: dict = {"dateFrom": date, "dateTo": date, "status": "FINISHED"}
+    if competition_codes:
+        params["competitions"] = ",".join(competition_codes)
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, params=params, headers=headers)
+        if resp.status_code != 200:
+            raise FootballDataAPIError(
+                f"football-data.org returned {resp.status_code}: {resp.text[:200]}"
+            )
+        return resp.json().get("matches", [])
     except httpx.TimeoutException as exc:
         raise FootballDataAPIError("football-data.org timed out") from exc
     except httpx.RequestError as exc:

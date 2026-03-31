@@ -50,89 +50,77 @@ export default function Header({ lastUpdated }: { lastUpdated: Date | null }) {
     <>
       {/* Lineup API error banner */}
       {lineupError && (
-        <div style={{
-          background: "#fffbeb",
-          borderBottom: "1px solid #fde68a",
-          padding: "8px 24px",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-        }}>
-          <span style={{ fontSize: 13 }}>⚠️</span>
-          <span className="mono" style={{ fontSize: 11, color: "var(--amber)" }}>
-            Backend no disponible
-          </span>
+        <div style={{ background: "#fffbeb", borderBottom: "1px solid #fde68a" }}>
+          <div style={{ maxWidth: 820, margin: "0 auto", padding: "8px 24px" }}>
+            <span className="mono" style={{ fontSize: 11, color: "var(--amber)" }}>
+              Backend no disponible
+            </span>
+          </div>
         </div>
       )}
 
       <header style={{
         background: "var(--surface)",
         borderBottom: "1px solid var(--border)",
-        padding: "16px 24px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
       }}>
-        {/* Left: brand + subtitle */}
-        <div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span style={{ fontSize: 22, fontWeight: 600, color: "var(--text)", letterSpacing: "-0.02em" }}>
+        <div style={{
+          maxWidth: 820,
+          margin: "0 auto",
+          padding: "18px 24px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}>
+          {/* Left: brand + subtitle */}
+          <div>
+            <span style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.03em", display: "block" }}>
               EdgeFút
             </span>
-            <span style={{ fontSize: 18 }}>⚡</span>
+            <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, letterSpacing: "0" }}>
+              Value Bets · Dixon-Coles vs Polymarket
+            </p>
           </div>
-          <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-            Value Bets · Dixon-Coles vs Polymarket
-          </p>
-        </div>
 
-        {/* Right: tz selector + bankroll link + clock + live dot */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* Timezone selector */}
-          <select
-            value={tz}
-            onChange={e => setTz(e.target.value)}
-            className="mono"
-            style={{
-              fontSize: 11,
-              color: "var(--muted)",
-              background: "transparent",
-              border: "1px solid var(--border)",
-              borderRadius: 5,
-              padding: "2px 6px",
-              cursor: "pointer",
-              outline: "none",
-              maxWidth: 130,
-            }}
-          >
-            {/* If current tz not in the list (auto-detected unknown), show it first */}
-            {!TIMEZONES.find(t => t.value === tz) && (
-              <option value={tz}>{tz}</option>
-            )}
-            {TIMEZONES.map(t => (
-              <option key={t.value} value={t.value}>{t.label}</option>
-            ))}
-          </select>
+          {/* Right: tz selector + links + clock + live dot */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <select
+              value={tz}
+              onChange={e => setTz(e.target.value)}
+              className="mono"
+              style={{
+                fontSize: 11,
+                color: "var(--muted)",
+                background: "transparent",
+                border: "1px solid var(--border)",
+                borderRadius: 5,
+                padding: "3px 8px",
+                cursor: "pointer",
+                outline: "none",
+                maxWidth: 140,
+              }}
+            >
+              {!TIMEZONES.find(t => t.value === tz) && (
+                <option value={tz}>{tz}</option>
+              )}
+              {TIMEZONES.map(t => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
 
-          <Link
-            href="/bankroll"
-            style={{ fontSize: 11, color: "var(--muted)", textDecoration: "none", fontFamily: "var(--mono)" }}
-          >
-            Bankroll →
-          </Link>
+            <Link href="/performance" style={{ fontSize: 11, color: "var(--muted)", textDecoration: "none", fontFamily: "var(--mono)" }}>
+              Performance
+            </Link>
 
-          <span className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>
-            {time}
-          </span>
+            <Link href="/bankroll" style={{ fontSize: 11, color: "var(--muted)", textDecoration: "none", fontFamily: "var(--mono)" }}>
+              Bankroll
+            </Link>
 
-          <span style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: "var(--green)",
-            display: "inline-block",
-            flexShrink: 0,
-          }} />
+            <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+              {time}
+            </span>
+
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", display: "inline-block", flexShrink: 0 }} />
+          </div>
         </div>
       </header>
     </>
