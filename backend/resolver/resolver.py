@@ -367,6 +367,8 @@ def fetch_today_from_polymarket(
 
         ALLOWED_TAG_TO_COMP = {
             "fifa-friendly":        "FIFA Friendly",
+            "fifa-world-cup":       "FIFA World Cup Qualifying",
+            "world-cup":            "FIFA World Cup Qualifying",
             "EPL":                  "Premier League",
             "premier-league":       "Premier League",
             "la-liga":              "La Liga",
@@ -378,7 +380,6 @@ def fetch_today_from_polymarket(
             "europa-league":        "UEFA Europa League",
             "uel":                  "UEFA Europa League",
             "efl-championship":     "EFL Championship",
-            "womens-champions-league": "UEFA Women's CL",
         }
 
         competition = next(
