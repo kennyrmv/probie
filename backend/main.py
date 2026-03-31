@@ -73,19 +73,29 @@ def _refresh_job():
         db.commit()
 
 
-def _auto_lineup_job():
+def _lineup_monitor_job():
     """
-    Auto-fetch confirmed lineups for matches kicking off in the next 35 minutes.
-    Runs every 5 minutes. Triggers re-analysis if a confirmed XI is found.
+    Monitor for confirmed lineups via API-Football and auto-trigger analysis.
+
+    Runs every 5 min. Checks matches kicking off in the next 2.5 hours.
+    When a confirmed XI arrives:
+      1. Store lineup in match.lineup_data
+      2. Collect all structured data (form, H2H, injuries, odds)
+      3. Run Claude analysis on structured data (no web scraping)
+      4. Store analysis in match.analysis_data
+
     API-Football publishes lineups ~60min before kickoff.
+    Uses ONLY API-Football — no Claude/DuckDuckGo fallback.
     """
     from datetime import timedelta
     from models import Match
-    from resolver.claude_lineup import fetch_lineup_for_match
+    from resolver.api_football import fetch_lineup_for_match
+    from resolver.data_collector import collect_match_data
+    from resolver.match_analyst_v2 import analyze as run_structured_analysis
 
     now = datetime.now(timezone.utc)
-    window_start = now + timedelta(minutes=0)    # already started (live)
-    window_end   = now + timedelta(minutes=35)   # up to 35 min from now
+    window_start = now - timedelta(minutes=10)  # catch just-started matches
+    window_end = now + timedelta(hours=2, minutes=30)
 
     with SessionLocal() as db:
         upcoming = (
@@ -99,12 +109,37 @@ def _auto_lineup_job():
         for match in upcoming:
             existing = match.lineup_data or {}
             if existing.get("lineup_confirmed"):
-                continue  # already confirmed, skip
+                # Already confirmed — check if analysis was done with lineup
+                analysis = match.analysis_data or {}
+                if analysis.get("lineup_data_used"):
+                    continue  # fully analyzed with lineup, skip
+                # Lineup confirmed but analysis stale → re-analyze
+                logger.info(
+                    "Lineup monitor: re-analyzing %s vs %s (lineup confirmed but analysis stale)",
+                    match.home_team, match.away_team,
+                )
+                try:
+                    match_data = collect_match_data(match, db)
+                    analysis_result = run_structured_analysis(match_data)
+                    if match_data.get("market_probs"):
+                        analysis_result["market_probs_at_analysis"] = match_data["market_probs"]
+                    match.analysis_data = analysis_result
+                    db.commit()
+                    logger.info(
+                        "Lineup monitor: re-analysis stored for %s vs %s",
+                        match.home_team, match.away_team,
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "Lineup monitor: re-analysis failed for %s vs %s: %s",
+                        match.home_team, match.away_team, exc,
+                    )
+                continue
 
+            minutes_to_kickoff = int((match.kickoff_utc - now).total_seconds() / 60)
             logger.info(
-                "Auto-lineup: fetching for %s vs %s (kickoff in %d min)",
-                match.home_team, match.away_team,
-                int((match.kickoff_utc - now).total_seconds() / 60),
+                "Lineup monitor: checking %s vs %s (kickoff in %d min)",
+                match.home_team, match.away_team, minutes_to_kickoff,
             )
             try:
                 lineup = fetch_lineup_for_match(
@@ -112,19 +147,40 @@ def _auto_lineup_job():
                     away_team=match.away_team,
                     kickoff_dt=match.kickoff_utc,
                 )
-                if lineup:
-                    match.lineup_data = lineup
-                    db.commit()
-                    logger.info(
-                        "Auto-lineup: confirmed XI stored for %s vs %s",
-                        match.home_team, match.away_team,
-                    )
-                    # Trigger re-analysis with confirmed lineup
-                    if lineup.get("lineup_confirmed"):
-                        _run_analysis_and_store(str(match.id))
+                if not lineup:
+                    continue  # Not yet confirmed — will retry in 5 min
+
+                match.lineup_data = lineup
+                db.commit()
+                logger.info(
+                    "Lineup monitor: confirmed XI for %s vs %s → triggering auto-analysis",
+                    match.home_team, match.away_team,
+                )
+
+                # Auto-analysis with structured data
+                if lineup.get("lineup_confirmed"):
+                    try:
+                        match_data = collect_match_data(match, db)
+                        analysis_result = run_structured_analysis(match_data)
+                        if match_data.get("market_probs"):
+                            analysis_result["market_probs_at_analysis"] = match_data["market_probs"]
+                        match.analysis_data = analysis_result
+                        db.commit()
+                        logger.info(
+                            "Lineup monitor: auto-analysis complete for %s vs %s — signal=%s/%s",
+                            match.home_team, match.away_team,
+                            analysis_result.get("bet_signal", {}).get("type"),
+                            analysis_result.get("bet_signal", {}).get("side"),
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "Lineup monitor: auto-analysis failed for %s vs %s: %s",
+                            match.home_team, match.away_team, exc,
+                        )
+
             except Exception as exc:
                 logger.warning(
-                    "Auto-lineup: failed for %s vs %s: %s",
+                    "Lineup monitor: failed for %s vs %s: %s",
                     match.home_team, match.away_team, exc,
                 )
 
@@ -164,13 +220,14 @@ def _save_daily_picks_job():
     )
 
 
-# Every 5 min — auto-fetch confirmed lineups for matches kicking off in ≤35 min
-# API-Football publishes lineups ~60min before kickoff, this catches them automatically
+# Every 5 min — monitor for confirmed lineups + auto-trigger analysis
+# Checks matches in next 2.5h. API-Football publishes lineups ~60min before kickoff.
+# When confirmed XI arrives → collect API data → run Claude analysis → store.
 scheduler.add_job(
-    _auto_lineup_job,
+    _lineup_monitor_job,
     "cron",
     minute="*/5",
-    id="auto_lineup",
+    id="lineup_monitor",
 )
 
 # Every 15 min — resolve finished match results + compute CLV + update scores

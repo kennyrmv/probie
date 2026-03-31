@@ -41,10 +41,12 @@ def health_check():
     if not db_ok:
         raise HTTPException(status_code=503, detail={"status": "degraded", "db": "unavailable"})
 
+    from resolver.api_football import read_lineup_state
+    lineup_state = read_lineup_state()
     return {
         "status": "ok",
         "db": "connected",
-        "lineup_status": "ok",  # Claude+DuckDuckGo — always available
+        "lineup_status": lineup_state.get("status", "unknown"),
     }
 
 
@@ -132,22 +134,13 @@ def analyze_match(match_id: str, db: Session = Depends(get_db)):
     outcomes_context = _build_outcomes_context(db, match)
 
     try:
-        from resolver.match_analyst import analyze_match as run_analysis
-        analysis = run_analysis(
-            home_team=match.home_team,
-            away_team=match.away_team,
-            competition=match.competition,
-            kickoff_dt=match.kickoff_utc,
-            lineup_data=match.lineup_data,      # Pass confirmed lineup if available
-            outcomes=outcomes_context,           # Pass math context (model vs market)
-        )
+        from resolver.data_collector import collect_match_data
+        from resolver.match_analyst_v2 import analyze as run_structured_analysis
+        match_data = collect_match_data(match, db)
+        analysis = run_structured_analysis(match_data)
         # Freeze market probs at analysis time — prevents showing post-match 100% prices
-        if outcomes_context:
-            analysis["market_probs_at_analysis"] = {
-                o["outcome"]: o["polymarket_prob"]
-                for o in outcomes_context
-                if o.get("polymarket_prob") is not None
-            }
+        if match_data.get("market_probs"):
+            analysis["market_probs_at_analysis"] = match_data["market_probs"]
         match.analysis_data = analysis
         db.commit()
         return {"status": "ok", "analysis": analysis}
@@ -182,7 +175,7 @@ def fetch_match_lineup(match_id: str, background_tasks: BackgroundTasks, db: Ses
         raise HTTPException(status_code=404, detail="Match not found")
 
     try:
-        from resolver.claude_lineup import fetch_lineup_for_match
+        from resolver.api_football import fetch_lineup_for_match
         lineup = fetch_lineup_for_match(
             home_team=match.home_team,
             away_team=match.away_team,
@@ -208,7 +201,7 @@ def fetch_match_lineup(match_id: str, background_tasks: BackgroundTasks, db: Ses
                 return {"status": "ok", "lineup": lineup, "auto_analysis_triggered": True}
             return {"status": "ok", "lineup": lineup, "auto_analysis_triggered": False}
         else:
-            return {"status": "not_available", "lineup": None, "message": "Alineación no confirmada aún — suele publicarse ~1h antes del partido"}
+            return {"status": "not_available", "lineup": None, "message": "Alineacion no confirmada aun. Se publica ~60 min antes del partido via API-Football. El analisis se dispara automaticamente cuando llegue."}
 
     except Exception as exc:
         logger.error("Lineup fetch failed for match %s: %s", match_id, exc)
@@ -553,8 +546,9 @@ def _build_outcomes_context(db: Session, match: Match) -> list[dict] | None:
 
 
 def _run_analysis_and_store(match_id: str) -> None:
-    """Background task: run AI analysis and persist to DB.
+    """Background task: run structured AI analysis and persist to DB.
     Opens a fresh DB session — safe to call from FastAPI BackgroundTasks.
+    Uses data_collector + match_analyst_v2 (no web scraping).
     """
     with SessionLocal() as db:
         try:
@@ -568,23 +562,13 @@ def _run_analysis_and_store(match_id: str) -> None:
             if not match:
                 logger.warning("_run_analysis_and_store: match %s not found", match_id)
                 return
-            outcomes_context = _build_outcomes_context(db, match)
-            from resolver.match_analyst import analyze_match as run_analysis
-            analysis = run_analysis(
-                home_team=match.home_team,
-                away_team=match.away_team,
-                competition=match.competition or "International Friendly",
-                kickoff_dt=match.kickoff_utc,
-                lineup_data=match.lineup_data,
-                outcomes=outcomes_context,
-            )
-            # Freeze market probs at analysis time — prevents showing post-match 100% prices
-            if outcomes_context:
-                analysis["market_probs_at_analysis"] = {
-                    o["outcome"]: o["polymarket_prob"]
-                    for o in outcomes_context
-                    if o.get("polymarket_prob") is not None
-                }
+            from resolver.data_collector import collect_match_data
+            from resolver.match_analyst_v2 import analyze as run_structured_analysis
+            match_data = collect_match_data(match, db)
+            analysis = run_structured_analysis(match_data)
+            # Freeze market probs at analysis time
+            if match_data.get("market_probs"):
+                analysis["market_probs_at_analysis"] = match_data["market_probs"]
             match.analysis_data = analysis
             db.commit()
             logger.info("Background analysis stored for match %s", match_id)

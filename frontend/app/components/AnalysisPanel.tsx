@@ -179,7 +179,7 @@ export default function AnalysisPanel({
     return (
       <div style={{ padding: "10px 16px 12px", borderTop: "1px solid var(--border)" }}>
         <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
-          Buscando en internet y analizando con IA…
+          Analizando con IA…
         </span>
       </div>
     );

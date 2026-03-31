@@ -281,6 +281,11 @@ function ModalLineupButton({
       {message && (
         <span className="mono" style={{ fontSize: 10, color: "var(--muted)" }}>{message}</span>
       )}
+      {!hasProbableLineup && !loading && !polling && (
+        <span className="mono" style={{ fontSize: 9, color: "var(--muted)", opacity: 0.7 }}>
+          El analisis se ejecuta automaticamente al confirmarse las alineaciones (~60 min antes)
+        </span>
+      )}
     </div>
   );
 }

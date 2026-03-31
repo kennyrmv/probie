@@ -280,6 +280,12 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                   padding: "1px 5px", borderRadius: 3, fontWeight: 600,
                 }}>XI</span>
               )}
+              {!hasLineup && !isFinished && minutesToKickoff(match.kickoff) <= 150 && minutesToKickoff(match.kickoff) > 0 && (
+                <span className="mono" style={{
+                  fontSize: 8, background: "#eff6ff", color: "#3b82f6",
+                  padding: "1px 5px", borderRadius: 3, fontWeight: 600,
+                }}>XI pendiente</span>
+              )}
               {hasAnalysis && (
                 <span className="mono" style={{
                   fontSize: 8,

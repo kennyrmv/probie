@@ -40,6 +40,11 @@ API_BASE = "https://v3.football.api-sports.io"
 FUZZY_THRESHOLD = 72
 WINDOW_MINUTES = 90
 
+# In-memory fixture cache: {date_str: (timestamp, fixtures_list)}
+# Avoids burning API requests by re-fetching the same day's fixtures
+_fixture_cache: dict[str, tuple[float, list[dict]]] = {}
+_CACHE_TTL_SECONDS = 300  # 5 minutes
+
 
 class LineupAPIError(Exception):
     """Raised when the lineup API is unavailable or returns an error."""
@@ -137,9 +142,19 @@ def fetch_fixtures_for_date(date_str: str) -> list[dict]:
     """
     Fetch all football fixtures for a date (YYYY-MM-DD).
     Returns list of fixture response dicts.
+    Uses in-memory cache (5 min TTL) to avoid burning API requests.
     """
+    import time as _time
+    now = _time.time()
+    cached = _fixture_cache.get(date_str)
+    if cached and (now - cached[0]) < _CACHE_TTL_SECONDS:
+        logger.debug("API-Football fixtures cache hit for %s", date_str)
+        return cached[1]
+
     data = _request("/fixtures", {"date": date_str, "timezone": "UTC"})
-    return data.get("response", [])
+    fixtures = data.get("response", [])
+    _fixture_cache[date_str] = (now, fixtures)
+    return fixtures
 
 
 def find_fixture(
@@ -240,11 +255,17 @@ def fetch_lineup(fixture_id: int) -> dict:
     }
 
 
-def fetch_injuries(fixture_id: int) -> dict:
+def fetch_injuries(fixture_id: int, home_team_id: int | None = None) -> dict:
     """
     Fetch injured/suspended players for a fixture.
     Returns {"home_missing": [...], "away_missing": [...]}.
     Silently returns empty on free plan (403 from API).
+
+    Args:
+        fixture_id: API-Football fixture ID
+        home_team_id: API-Football team ID for the home side.
+            Used to separate injuries into home/away buckets.
+            If None, all injuries go into home_missing (legacy behavior).
     """
     try:
         data = _request("/injuries", {"fixture": fixture_id})
@@ -265,9 +286,15 @@ def fetch_injuries(fixture_id: int) -> dict:
             "reason": reason,
             "type": "missing",
         }
-        # API-Football doesn't directly say home/away — we match by team ID later
-        # For now, collect all and return flat (the frontend just lists them)
-        home_missing.append(item)  # simplified: all under home for now
+        team_id = team.get("id")
+        if home_team_id is not None and team_id is not None:
+            if team_id == home_team_id:
+                home_missing.append(item)
+            else:
+                away_missing.append(item)
+        else:
+            # Fallback: can't determine side — put all under home
+            home_missing.append(item)
 
     return {"home_missing": home_missing, "away_missing": away_missing}
 
@@ -326,7 +353,9 @@ def fetch_lineup_for_match(
     if not lineup:
         return None  # Not yet confirmed
 
-    injuries = fetch_injuries(fixture_id)
+    # Extract home team ID from the fixture for correct injury assignment
+    home_team_id = fixture.get("teams", {}).get("home", {}).get("id")
+    injuries = fetch_injuries(fixture_id, home_team_id=home_team_id)
 
     return {
         "source": "api-football",
