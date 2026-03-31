@@ -287,11 +287,11 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                   color: analysis!.bet_signal!.type === "value" ? "var(--green)" : "var(--amber)",
                   padding: "1px 5px", borderRadius: 3, fontWeight: 600,
                 }}>
-                  {analysis!.bet_signal!.type === "value" ? "⚡ Analizado" : "✓ Analizado"}
+                  Analizado
                 </span>
               )}
               {prior && !analysis && (
-                <span className="mono" style={{ fontSize: 8, color: "var(--amber)" }}>⚠ priors</span>
+                <span className="mono" style={{ fontSize: 8, color: "var(--amber)" }}>priors</span>
               )}
             </div>
           </div>
@@ -352,7 +352,7 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                     border: "1px solid var(--green)",
                     borderRadius: 6, padding: "2px 8px", letterSpacing: "0.02em",
                   }}>
-                    ⚡ Edge confirmado
+                    Edge confirmado
                   </span>
                 );
               }
@@ -364,7 +364,7 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                     border: "1px solid #a78bfa",
                     borderRadius: 6, padding: "2px 8px", letterSpacing: "0.02em",
                   }}>
-                    💪 Apuesta de fuerza
+                    Apuesta de fuerza
                   </span>
                 );
               }
@@ -390,7 +390,7 @@ export default function MatchCard({ match, delay }: { match: Match; delay: numbe
                     border: `1px dashed ${edgeBorder}`,
                     borderRadius: 6, padding: "2px 8px", letterSpacing: "0.02em",
                   }}>
-                    {isHigh ? "⚡ Sin analizar" : "↑ Sin analizar"}
+                    Sin analizar
                   </span>
                 );
               }

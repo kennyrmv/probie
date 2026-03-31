@@ -273,7 +273,6 @@ function ModalLineupButton({
           opacity: loading ? 0.6 : 1,
         }}
       >
-        {loading ? "⏳" : "📋"}{" "}
         {loading ? "Buscando…" : hasProbableLineup ? "Actualizar XI oficial" : "Ver Alineación"}
         {!loading && !isClose && (
           <span style={{ color: "var(--muted)", fontSize: 9 }}>({Math.round(minsToKickoff / 60)}h)</span>
@@ -335,9 +334,9 @@ function ModalOutcomeRow({
 
         // Badge label
         const badgeLabel = isAiPick
-          ? (isValueType ? "⚡ IA confirma valor" : "💪 IA recomienda")
-          : modelIsHigh ? "⚡ El mercado lo infravalora"
-          : "↑ Ligera ventaja";
+          ? (isValueType ? "IA confirma valor" : "IA recomienda")
+          : modelIsHigh ? "El mercado lo infravalora"
+          : "Ligera ventaja";
 
         const inner = (
           <div style={{

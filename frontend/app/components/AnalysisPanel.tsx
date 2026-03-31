@@ -68,9 +68,9 @@ const CONFIDENCE_COLOR: Record<string, string> = {
 };
 
 const SIGNAL_CONFIG = {
-  value:    { label: "⚡ Edge de mercado",    color: "var(--green)", bg: "#f0fdf4", border: "var(--green)" },
-  strength: { label: "💪 Apuesta de fuerza", color: "#7c3aed",      bg: "#f5f3ff", border: "#a78bfa" },
-  none:     { label: "Sin señal clara",       color: "var(--muted)", bg: "var(--surface)", border: "var(--border)" },
+  value:    { label: "Edge de mercado",    color: "var(--green)", bg: "#f0fdf4", border: "var(--green)" },
+  strength: { label: "Apuesta de fuerza", color: "#7c3aed",      bg: "#f5f3ff", border: "#a78bfa" },
+  none:     { label: "Sin señal clara",   color: "var(--muted)", bg: "var(--surface)", border: "var(--border)" },
 };
 
 function TopPlayerCard({ player }: { player: TopPlayer }) {
@@ -115,6 +115,7 @@ export default function AnalysisPanel({
   const [data, setData] = useState<AnalysisData | null>(initialData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reasoningExpanded, setReasoningExpanded] = useState(false);
 
   // Sync if parent fetches analysis via another path (e.g. lineup fetch background task)
   useEffect(() => {
@@ -126,6 +127,7 @@ export default function AnalysisPanel({
   const run = async () => {
     setLoading(true);
     setError(null);
+    setReasoningExpanded(false);
     try {
       const res = await fetch(`/api/matches/${matchId}/analyze`, {
         method: "POST",
@@ -166,7 +168,7 @@ export default function AnalysisPanel({
             gap: 6,
           }}
         >
-          <span>🔍</span> Analizar partido
+          Analizar partido
         </button>
       </div>
     );
@@ -177,7 +179,7 @@ export default function AnalysisPanel({
     return (
       <div style={{ padding: "10px 16px 12px", borderTop: "1px solid var(--border)" }}>
         <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
-          ⏳ Buscando en internet y analizando con IA…
+          Buscando en internet y analizando con IA…
         </span>
       </div>
     );
@@ -187,7 +189,7 @@ export default function AnalysisPanel({
   if (error) {
     return (
       <div style={{ padding: "10px 16px 12px", borderTop: "1px solid var(--border)", display: "flex", gap: 12, alignItems: "center" }}>
-        <span className="mono" style={{ fontSize: 11, color: "var(--red, #dc2626)" }}>✕ {error}</span>
+        <span className="mono" style={{ fontSize: 11, color: "var(--red, #dc2626)" }}>{error}</span>
         <button onClick={run} style={{ fontSize: 11, color: "var(--muted)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: "var(--mono)" }}>
           reintentar
         </button>
@@ -237,7 +239,7 @@ export default function AnalysisPanel({
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
               <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: signalCfg.color, letterSpacing: "0.08em" }}>
-                {signal.type === "value" ? "⚡" : "✓"} {signalCfg.label}
+                {signalCfg.label}
               </span>
               {signal.side && (
                 <span className="mono" style={{ fontSize: 9, color: signalCfg.color, background: "rgba(0,0,0,0.04)", border: `1px solid ${signalCfg.border}`, borderRadius: 4, padding: "1px 6px" }}>
@@ -248,9 +250,36 @@ export default function AnalysisPanel({
                 conf. {signal.confidence}
               </span>
             </div>
-            <p style={{ fontSize: 11, color: "var(--text)", lineHeight: 1.6, margin: 0 }}>
+            <p style={{
+              fontSize: 11,
+              color: "var(--text)",
+              lineHeight: 1.65,
+              margin: 0,
+              display: !reasoningExpanded ? "-webkit-box" : "block",
+              WebkitLineClamp: !reasoningExpanded ? 4 : undefined,
+              WebkitBoxOrient: "vertical" as const,
+              overflow: !reasoningExpanded ? "hidden" : "visible",
+            }}>
               {signal.reasoning}
             </p>
+            {!reasoningExpanded && signal.reasoning && signal.reasoning.length > 200 && (
+              <button
+                onClick={() => setReasoningExpanded(true)}
+                style={{
+                  fontSize: 10,
+                  color: "var(--muted)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: "4px 0 0",
+                  fontFamily: "var(--mono)",
+                  textDecoration: "underline",
+                  textUnderlineOffset: 2,
+                }}
+              >
+                ver más
+              </button>
+            )}
           </div>
         )}
 

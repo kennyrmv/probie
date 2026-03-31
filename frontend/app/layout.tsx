@@ -3,7 +3,7 @@ import "./globals.css";
 import { TimezoneProvider } from "./context/TimezoneContext";
 
 export const metadata: Metadata = {
-  title: "EdgeFút ⚡ — Value Bets del Día",
+  title: "EdgeFút — Value Bets del Día",
   description: "Detecta apuestas de valor comparando el modelo Dixon-Coles contra las probabilidades de Polymarket",
 };
 
