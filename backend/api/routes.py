@@ -455,7 +455,7 @@ def get_performance(db: Session = Depends(get_db)):
         }
 
     except Exception as exc:
-        logger.error("GET /api/performance failed: %s", exc)
+        logger.exception("GET /api/performance failed")
         raise HTTPException(status_code=500, detail="Performance data unavailable")
 
 
