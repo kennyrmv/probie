@@ -104,12 +104,14 @@ export default function AnalysisPanel({
   homeTeam,
   awayTeam,
   initialData,
+  analysisAvailable = true,
   onAnalysisReady,
 }: {
   matchId: string;
   homeTeam: string;
   awayTeam: string;
   initialData: AnalysisData | null;
+  analysisAvailable?: boolean;
   onAnalysisReady?: (a: AnalysisData) => void;
 }) {
   const [data, setData] = useState<AnalysisData | null>(initialData);
@@ -152,24 +154,30 @@ export default function AnalysisPanel({
   if (!data && !loading && !error) {
     return (
       <div style={{ padding: "10px 16px 12px", borderTop: "1px solid var(--border)" }}>
-        <button
-          onClick={run}
-          style={{
-            fontSize: 11,
-            fontFamily: "var(--mono)",
-            color: "var(--text)",
-            background: "var(--bg)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            padding: "5px 12px",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
-          Analizar partido
-        </button>
+        {analysisAvailable ? (
+          <button
+            onClick={run}
+            style={{
+              fontSize: 11,
+              fontFamily: "var(--mono)",
+              color: "var(--text)",
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "5px 12px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            Analizar partido
+          </button>
+        ) : (
+          <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+            Análisis disponible 24h antes del partido
+          </span>
+        )}
       </div>
     );
   }

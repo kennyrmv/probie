@@ -61,6 +61,7 @@ interface Match {
   home_score: number | null;
   away_score: number | null;
   match_status: string;
+  analysis_available: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -540,6 +541,7 @@ export default function MatchModal({
             homeTeam={match.home_team}
             awayTeam={match.away_team}
             initialData={analysis}
+            analysisAvailable={match.analysis_available}
             onAnalysisReady={onAnalysisReady}
           />
         </div>

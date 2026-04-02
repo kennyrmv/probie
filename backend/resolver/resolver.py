@@ -123,110 +123,124 @@ def fetch_polymarket_events(
     """
     Fetch active, non-closed Polymarket soccer match events.
 
-    Uses tag_slug="soccer" with limit=500 to get ALL soccer events including:
-    - FIFA Friendlies (tag: fifa-friendly)
-    - EFL Championship, J-League, A-League, Liga MX, etc.
-    - Domestic leagues when in season
+    Queries tag_slug="soccer" plus league-specific tags that Polymarket keeps
+    in separate indexes (la-liga, bundesliga, ligue-1, premier-league, fa-cup,
+    champions-league, europa-league). Results are merged and deduplicated by id.
 
-    NOTE: First ~100 results are tournament-level markets (PL Winner, WC Winner, etc).
-    Individual match markets appear in positions 100-500. Use limit=500.
-    The date-window filter in this function removes past/stale events automatically.
-
-    Key filter: closed=false — active=true alone returns resolved/closed markets.
+    Key filter: closed=false — active=true alone returns closed markets too.
     outcomePrices is a JSON string on each market; consumers must json.loads() it.
 
     Raises:
         PolymarketAPIError: on network timeout or non-200 after retries.
     """
+    # These leagues are NOT returned by tag_slug="soccer" — fetched separately
+    EXTRA_TAGS = [
+        "la-liga",
+        "bundesliga",
+        "ligue-1",
+        "premier-league",
+        "champions-league",
+        "europa-league",
+        "fa-cup",
+    ]
+
     url = f"{POLYMARKET_BASE}/events"
-    params = {
-        "tag_slug": tag_slug,
-        "active": "true",
-        "closed": "false",  # CRITICAL: active=true alone returns closed markets too
-        "limit": limit,
-    }
 
-    for attempt in range(max_retries):
-        try:
-            with httpx.Client(timeout=15.0) as client:
-                resp = client.get(url, params=params)
+    def _fetch_one_tag(slug: str) -> list[dict]:
+        params = {
+            "tag_slug": slug,
+            "active": "true",
+            "closed": "false",
+            "limit": limit,
+        }
+        for attempt in range(max_retries):
+            try:
+                with httpx.Client(timeout=15.0) as client:
+                    resp = client.get(url, params=params)
 
-            if resp.status_code == 429:
+                if resp.status_code == 429:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(
+                        "Polymarket API rate limited (429). Retrying in %.1fs (attempt %d/%d)",
+                        delay, attempt + 1, max_retries,
+                    )
+                    time.sleep(delay)
+                    continue
+
+                if resp.status_code != 200:
+                    raise PolymarketAPIError(
+                        f"Polymarket API returned {resp.status_code}: {resp.text[:200]}"
+                    )
+
+                return resp.json()
+
+            except httpx.TimeoutException as exc:
+                if attempt == max_retries - 1:
+                    raise PolymarketAPIError(
+                        f"Polymarket API timed out after {max_retries} attempts"
+                    ) from exc
                 delay = base_delay * (2 ** attempt)
-                logger.warning(
-                    "Polymarket API rate limited (429). Retrying in %.1fs (attempt %d/%d)",
-                    delay, attempt + 1, max_retries,
-                )
+                logger.warning("Polymarket API timeout. Retrying in %.1fs", delay)
                 time.sleep(delay)
-                continue
 
-            if resp.status_code != 200:
-                raise PolymarketAPIError(
-                    f"Polymarket API returned {resp.status_code}: {resp.text[:200]}"
-                )
+            except httpx.RequestError as exc:
+                raise PolymarketAPIError(f"Polymarket network error: {exc}") from exc
 
-            events = resp.json()
+        raise PolymarketAPIError("Polymarket API: max retries exceeded")
 
-            if soccer_only:
-                events = [
-                    e for e in events
-                    if any(t.get("slug") == "soccer" for t in e.get("tags", []))
-                ]
+    # Fetch primary "soccer" tag + league-specific tags, deduplicate by event id
+    all_events: dict[str, dict] = {}
+    for slug in [tag_slug] + EXTRA_TAGS:
+        try:
+            for event in _fetch_one_tag(slug):
+                eid = event.get("id") or event.get("slug") or ""
+                if eid and eid not in all_events:
+                    all_events[eid] = event
+        except PolymarketAPIError as exc:
+            logger.warning("Failed to fetch tag %r: %s", slug, exc)
 
-            # Filter to upcoming/live matches only:
-            # - must have a startTime field
-            # - startTime must be within the next 7 days (not old stuck markets)
-            # - period != "POST" (already played)
-            from datetime import datetime, timezone, timedelta
-            now = datetime.now(timezone.utc)
-            window_future = now + timedelta(days=7)
-            window_past = now - timedelta(hours=3)  # allow in-progress matches
+    events = list(all_events.values())
 
-            def _is_upcoming(e: dict) -> bool:
-                st = e.get("startTime") or ""
-                if not st:
-                    return False
-                if e.get("period", "").upper() == "POST":
-                    return False
-                try:
-                    dt = datetime.fromisoformat(st.replace("Z", "+00:00"))
-                    return window_past <= dt <= window_future
-                except ValueError:
-                    return False
+    if soccer_only:
+        events = [
+            e for e in events
+            if any(t.get("slug") == "soccer" for t in e.get("tags", []))
+        ]
 
-            events = [e for e in events if _is_upcoming(e)]
+    # Filter to upcoming/live matches only
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    window_future = now + timedelta(days=7)
+    window_past = now - timedelta(hours=3)
 
-            # Filter out women's competitions by slug/title keywords
-            _WOMEN_KEYWORDS = ("women", "femenin", "ladies", "nwsl", "wsl", "uwcl", "woman")
-            def _is_mens(e: dict) -> bool:
-                slug  = (e.get("slug") or "").lower()
-                title = (e.get("title") or "").lower()
-                return not any(kw in slug or kw in title for kw in _WOMEN_KEYWORDS)
+    def _is_upcoming(e: dict) -> bool:
+        st = e.get("startTime") or ""
+        if not st:
+            return False
+        if e.get("period", "").upper() == "POST":
+            return False
+        try:
+            dt = datetime.fromisoformat(st.replace("Z", "+00:00"))
+            return window_past <= dt <= window_future
+        except ValueError:
+            return False
 
-            before = len(events)
-            events = [e for e in events if _is_mens(e)]
-            if before != len(events):
-                logger.debug("Filtered %d women's competition events", before - len(events))
+    events = [e for e in events if _is_upcoming(e)]
 
-            logger.info(
-                "Fetched %d Polymarket soccer match events (tag=%s, upcoming only)",
-                len(events), tag_slug,
-            )
-            return events
+    # Filter out women's competitions
+    _WOMEN_KEYWORDS = ("women", "femenin", "ladies", "nwsl", "wsl", "uwcl", "woman")
+    def _is_mens(e: dict) -> bool:
+        s = (e.get("slug") or "").lower()
+        t = (e.get("title") or "").lower()
+        return not any(kw in s or kw in t for kw in _WOMEN_KEYWORDS)
 
-        except httpx.TimeoutException as exc:
-            if attempt == max_retries - 1:
-                raise PolymarketAPIError(
-                    f"Polymarket API timed out after {max_retries} attempts"
-                ) from exc
-            delay = base_delay * (2 ** attempt)
-            logger.warning("Polymarket API timeout. Retrying in %.1fs", delay)
-            time.sleep(delay)
+    before = len(events)
+    events = [e for e in events if _is_mens(e)]
+    if before != len(events):
+        logger.debug("Filtered %d women's competition events", before - len(events))
 
-        except httpx.RequestError as exc:
-            raise PolymarketAPIError(f"Polymarket network error: {exc}") from exc
-
-    raise PolymarketAPIError("Polymarket API: max retries exceeded")
+    logger.info("Fetched %d Polymarket soccer match events (upcoming only)", len(events))
+    return events
 
 
 def get_implied_prob(event: dict, outcome: str) -> float:
@@ -391,7 +405,7 @@ def fetch_today_from_polymarket(
             "ucl":                  "UEFA Champions League",
             "europa-league":        "UEFA Europa League",
             "uel":                  "UEFA Europa League",
-            "efl-championship":     "EFL Championship",
+            "fa-cup":               "FA Cup",
         }
 
         competition = next(

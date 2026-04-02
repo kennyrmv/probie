@@ -71,13 +71,14 @@ def get_matches_today(background_tasks: BackgroundTasks, db: Session = Depends(g
         now = datetime.now(timezone.utc)
         # Show matches from 4h ago (live/just finished + Polymarket settlement time) up to 36h ahead
         window_start = now - timedelta(hours=4)
-        window_end = now + timedelta(hours=36)
+        window_end = now + timedelta(hours=48)
 
         today_matches = (
             db.query(Match)
             .filter(
                 Match.kickoff_utc >= window_start,
                 Match.kickoff_utc <= window_end,
+                Match.competition != "EFL Championship",
             )
             .all()
         )
@@ -129,6 +130,11 @@ def analyze_match(match_id: str, db: Session = Depends(get_db)):
     match = db.query(Match).filter(Match.id == mid).first()
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
+
+    # Block analysis for matches more than 24h away
+    hours_until_kickoff = (match.kickoff_utc - datetime.now(timezone.utc)).total_seconds() / 3600
+    if hours_until_kickoff > 24:
+        raise HTTPException(status_code=400, detail="Analysis only available within 24h of kickoff")
 
     # Build outcomes context so Claude knows the math edge
     outcomes_context = _build_outcomes_context(db, match)
@@ -686,6 +692,7 @@ def _build_match_response(db: Session, match: Match) -> dict | None:
             best_delta = delta_pp
             best_tier = value_tier or "none"
 
+    hours_until_kickoff = (match.kickoff_utc - datetime.now(timezone.utc)).total_seconds() / 3600
     return {
         "id": str(match.id),
         "home_team": match.home_team,
@@ -703,6 +710,7 @@ def _build_match_response(db: Session, match: Match) -> dict | None:
         "home_score": match.home_score,
         "away_score": match.away_score,
         "match_status": match.match_status or "scheduled",
+        "analysis_available": hours_until_kickoff <= 24,
     }
 
 

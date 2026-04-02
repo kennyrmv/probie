@@ -68,6 +68,7 @@ interface Match {
   home_score: number | null;
   away_score: number | null;
   match_status: string;
+  analysis_available: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -96,6 +96,7 @@ interface Match {
   home_score: number | null;
   away_score: number | null;
   match_status: string;
+  analysis_available: boolean;
 }
 
 function getMatchState(kickoff: string, dbStatus: string): "scheduled" | "live" | "finished" {
